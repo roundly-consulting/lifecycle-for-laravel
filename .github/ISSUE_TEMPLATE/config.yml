@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/roundly-consulting/package-template-for-laravel/issues/new?labels=question&title=Question%3A+
+    about: Ask how to use the package
+  - name: Request a feature
+    url: https://github.com/roundly-consulting/package-template-for-laravel/issues/new?labels=enhancement&title=Feature%3A+
+    about: Describe the use case for a new feature
+  - name: Report a security issue
+    url: https://github.com/roundly-consulting/package-template-for-laravel/security/policy
+    about: Report sensitive bugs privately
