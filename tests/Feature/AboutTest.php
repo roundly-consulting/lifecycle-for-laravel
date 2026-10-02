@@ -8,7 +8,17 @@ declare(strict_types=1);
  * flags only, never a payload or a secret.
  */
 it('renders its about section', function (): void {
-    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Graph format', 'mermaid']);
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: [
+        'Graph format', 'mermaid',
+        'Key type', 'bigint',
+        'Actor key type',
+        'Strict state writes', 'ON',
+        'Actor from auth',
+        'Registered definitions',
+        'State model', 'LifecycleState',
+        'History model', 'LifecycleTransition',
+        'Schedule model', 'LifecycleSchedule',
+    ]);
 });
 
 it('reports the configured graph format', function (): void {

@@ -41,4 +41,32 @@ final class InvalidLifecycleUsageException extends LifecycleException
             is_string($value) ? $value : get_debug_type($value),
         ));
     }
+
+    public static function invalidRecord(string $reason): self
+    {
+        return new self(sprintf('Refusing to save an inconsistent lifecycle row: %s.', $reason));
+    }
+
+    public static function invalidRequest(string $reason): self
+    {
+        return new self(sprintf('Invalid lifecycle request: %s.', $reason));
+    }
+
+    public static function dirtyStateAttribute(string $class, string $attribute): self
+    {
+        return new self(sprintf(
+            'The lifecycle attribute [%s] of [%s] has unsaved changes. Transitions change the state; do not set it directly.',
+            $attribute,
+            $class,
+        ));
+    }
+
+    public static function invalidDateAttribute(string $attribute, mixed $value): self
+    {
+        return new self(sprintf(
+            'The attribute [%s] must hold a date, %s given.',
+            $attribute,
+            get_debug_type($value),
+        ));
+    }
 }

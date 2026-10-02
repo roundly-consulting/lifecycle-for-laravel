@@ -3,39 +3,49 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Lifecycle\LifecycleManager;
+use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
+use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Tests\Support\SourceScan;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
- * The seven arch presets every roundly package adopts, scoped to what a fresh package
- * actually has. Two are deliberately NOT registered here, for the same reason metrics and
- * enums skip them: this package ships no Eloquent model and no `*_model` config key, so
- * both would be green on the first run and stay green forever — vacuous rather than
- * adopted. Add them back the moment the package gains a swappable model:
- *
- *   - `swappableModelsAreNotFinal` — needs a `Model::class => 'handle.model'` map.
- *   - `modelsResolveThroughSeam` — needs a real model resolved through a Support seam.
- *
- * `morphColumnsUseTheSeam` is likewise skipped until the package ships migrations with
- * polymorphic columns.
+ * Every arch preset this package's shape qualifies for — models, swap seams, morph
+ * columns, a manager the fake extends.
  */
 ArchPresets::strictTypes('RoundlyConsulting\Lifecycle');
-// The manager is the one deliberate non-final class: LifecycleFake extends it, so an
-// injected manager still type-checks under Lifecycles::fake().
-ArchPresets::finalByDefault('RoundlyConsulting\Lifecycle', [LifecycleManager::class]);
+// The manager is non-final because LifecycleFake extends it; the three swappable models are
+// non-final because hosts extend them (pinned by swappableModelsAreNotFinal below).
+ArchPresets::finalByDefault('RoundlyConsulting\Lifecycle', [
+    LifecycleManager::class,
+    LifecycleState::class,
+    LifecycleTransition::class,
+    LifecycleSchedule::class,
+]);
+ArchPresets::swappableModelsAreNotFinal([
+    LifecycleState::class => 'lifecycle.models.state',
+    LifecycleTransition::class => 'lifecycle.models.transition',
+    LifecycleSchedule::class => 'lifecycle.models.schedule',
+]);
+// Rate-limit and quota keys are json_encode()d, never hashed.
 ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Lifecycle');
+ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support', [
+    'lifecycle.models.state',
+    'lifecycle.models.transition',
+    'lifecycle.models.schedule',
+]);
+ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
 
 /**
- * The Dependency Policy as a test. No `alsoAllow`: this template's `require` ships only
- * php/illuminate/roundly. If this goes red the graph is wrong — never widen the allow-list
- * to quiet it.
+ * The Dependency Policy as a test. No `alsoAllow`: `require` ships only php, illuminate and
+ * roundly packages. If this goes red the graph is wrong — never widen the allow-list.
  */
 ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
 
-// Enable once the package has Models/Concerns/Traits — the preset fails on an empty namespace.
-// ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Lifecycle');
+// The trait and the models reach behaviour through LifecycleManager, never an action.
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Lifecycle');
 
 /**
  * Bespoke rules of this package. Each first proves it scanned something, so an empty or
@@ -105,4 +115,15 @@ it('catches what the bespoke scans are meant to catch', function (): void {
         ->and(SourceScan::readsTheClock($file))->toBeFalse();
 
     unlink($file);
+});
+
+it('marks every engine class @internal', function (): void {
+    $files = SourceScan::files(__DIR__.'/../src/Engine');
+    $public = array_values(array_filter(
+        $files,
+        static fn (string $file): bool => preg_match('/^\s*\*\s*@internal\b/m', (string) file_get_contents($file)) !== 1,
+    ));
+
+    expect(count($files))->toBeGreaterThan(10)
+        ->and($public)->toBe([]);
 });

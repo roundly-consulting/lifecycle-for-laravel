@@ -3,6 +3,9 @@ parameters:
     paths:
         - src
         - config
+        - database
+        # HasLifecycle has no user inside src/; a fixture subject gets the trait analysed.
+        - tests/Fixtures/Models/Listing.php
     # This package ships its own config/ dir; env() is correct there.
     configDirectories:
         - config

@@ -1,0 +1,249 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Lifecycle;
+
+use BackedEnum;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
+use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
+use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
+use RoundlyConsulting\Lifecycle\Support\StateModel;
+
+/**
+ * One lifecycle of one subject: `Lifecycles::for($order)` or `$order->lifecycle()`.
+ *
+ * Immutable — `by()`, `asSystem()`, `because()`, `with()`, `expectingVersion()` and
+ * `idempotencyKey()` return a new handle. Every mutation goes through the manager, so the
+ * fake sees calls made through a handle. Reads use the eager-loaded `lifecycleStates`
+ * relation when present (`withLifecycle()`), else query.
+ */
+final readonly class LifecycleHandle
+{
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function __construct(
+        private LifecycleManager $manager,
+        public Model $subject,
+        public string $lifecycle,
+        private ?Model $actor = null,
+        private bool $system = false,
+        private ?string $reason = null,
+        private array $payload = [],
+        private ?int $expectedVersion = null,
+        private ?string $idempotencyKey = null,
+    ) {}
+
+    /**
+     * Who performs the next calls (user context). The last of `by()` / `asSystem()` wins.
+     */
+    public function by(?Model $actor): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, $actor, false, $this->reason, $this->payload, $this->expectedVersion, $this->idempotencyKey);
+    }
+
+    /**
+     * System context: no actor, actor rules skipped, only transitions that allow it.
+     */
+    public function asSystem(): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, null, true, $this->reason, $this->payload, $this->expectedVersion, $this->idempotencyKey);
+    }
+
+    public function because(?string $reason): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, $this->actor, $this->system, $reason, $this->payload, $this->expectedVersion, $this->idempotencyKey);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function with(array $payload): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, $this->actor, $this->system, $this->reason, $payload, $this->expectedVersion, $this->idempotencyKey);
+    }
+
+    /**
+     * Optimistic concurrency: refuse (`stale_version`) unless the record is still at this version.
+     */
+    public function expectingVersion(int $version): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, $this->actor, $this->system, $this->reason, $this->payload, $version, $this->idempotencyKey);
+    }
+
+    /**
+     * Apply at most once per key: a repeat returns the original result (`replayed`).
+     */
+    public function idempotencyKey(string $key): self
+    {
+        return new self($this->manager, $this->subject, $this->lifecycle, $this->actor, $this->system, $this->reason, $this->payload, $this->expectedVersion, $key);
+    }
+
+    /**
+     * The stored state — always what the database holds, even when an expiry is overdue.
+     */
+    public function state(): BackedEnum|string
+    {
+        $raw = $this->subject->getAttributes()[$this->lifecycle] ?? null;
+
+        if ($raw === null) {
+            throw UnknownStateException::notInitialized($this->subject, $this->lifecycle);
+        }
+
+        return $this->definition()->decode($raw);
+    }
+
+    public function is(BackedEnum|string|int ...$states): bool
+    {
+        $definition = $this->definition();
+        $current = $definition->key($this->state());
+
+        foreach ($states as $state) {
+            if ($definition->codec->tryKey($state) === $current) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function isTerminal(): bool
+    {
+        $definition = $this->definition();
+
+        return $definition->isTerminal($definition->key($this->state()));
+    }
+
+    public function enteredAt(): ?CarbonImmutable
+    {
+        return $this->record()?->entered_at;
+    }
+
+    /**
+     * The record version (0 before the first record exists).
+     */
+    public function version(): int
+    {
+        return $this->record()->version ?? 0;
+    }
+
+    public function definition(): CompiledDefinition
+    {
+        return $this->manager->definitions()->of($this->subject, $this->lifecycle);
+    }
+
+    public function can(string $transition): bool
+    {
+        return $this->check($transition)->allowed;
+    }
+
+    public function canTransitionTo(BackedEnum|string|int $state): bool
+    {
+        return $this->checkTransitionTo($state)->allowed;
+    }
+
+    public function check(string $transition): Decision
+    {
+        return $this->manager->check($this->request($transition, null));
+    }
+
+    public function checkTransitionTo(BackedEnum|string|int $state): Decision
+    {
+        return $this->manager->check($this->request(null, $state));
+    }
+
+    /**
+     * @return list<AvailableTransition>
+     */
+    public function allowedTransitions(bool $includeDenied = false): array
+    {
+        return $this->manager->available(new AvailableTransitionsQuery(
+            $this->subject, $this->lifecycle, $this->actor, $this->system, $includeDenied,
+        ));
+    }
+
+    /**
+     * The states the allowed transitions lead to.
+     *
+     * @return list<BackedEnum|string>
+     */
+    public function allowedStates(): array
+    {
+        $states = [];
+
+        foreach ($this->allowedTransitions() as $transition) {
+            if (! in_array($transition->to, $states, true)) {
+                $states[] = $transition->to;
+            }
+        }
+
+        return $states;
+    }
+
+    public function apply(string $transition): TransitionResult
+    {
+        return $this->manager->apply($this->request($transition, null));
+    }
+
+    public function attempt(string $transition): TransitionAttempt
+    {
+        return $this->manager->attempt($this->request($transition, null));
+    }
+
+    /**
+     * Apply the one transition from the current state to `$state`.
+     */
+    public function transitionTo(BackedEnum|string|int $state): TransitionResult
+    {
+        return $this->manager->apply($this->request(null, $state));
+    }
+
+    public function adopt(): bool
+    {
+        return $this->manager->adopt($this->subject, $this->lifecycle);
+    }
+
+    private function request(?string $transition, BackedEnum|string|int|null $target): TransitionRequest
+    {
+        return new TransitionRequest(
+            subject: $this->subject,
+            lifecycle: $this->lifecycle,
+            transition: $transition,
+            target: $target,
+            actor: $this->actor,
+            system: $this->system,
+            reason: $this->reason,
+            payload: $this->payload,
+            expectedVersion: $this->expectedVersion,
+            idempotencyKey: $this->idempotencyKey,
+        );
+    }
+
+    private function record(): ?LifecycleState
+    {
+        if ($this->subject->relationLoaded('lifecycleStates')) {
+            $records = $this->subject->getRelation('lifecycleStates');
+
+            if (is_iterable($records)) {
+                foreach ($records as $record) {
+                    if ($record instanceof LifecycleState && $record->lifecycle === $this->lifecycle) {
+                        return $record;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        return $this->subject->exists ? StateModel::of($this->subject, $this->lifecycle)->first() : null;
+    }
+}

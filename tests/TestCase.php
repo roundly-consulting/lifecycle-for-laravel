@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Tests;
 
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Lifecycle\LifecycleServiceProvider;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\InlineLifecycle;
 use RoundlyConsulting\Testing\PackageTestCase;
 
 abstract class TestCase extends PackageTestCase
@@ -20,6 +21,19 @@ abstract class TestCase extends PackageTestCase
     protected function packageProviders(): array
     {
         return [LifecycleServiceProvider::class];
+    }
+
+    /** @return list<class-string<ServiceProvider>|string> */
+    protected function migrationSources(): array
+    {
+        return [LifecycleServiceProvider::class, __DIR__.'/Fixtures/migrations'];
+    }
+
+    protected function setUp(): void
+    {
+        InlineLifecycle::$define = null;
+
+        parent::setUp();
     }
 
     /** @return array<string, mixed> */

@@ -1,0 +1,312 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Lifecycle\Engine;
+
+use Carbon\CarbonImmutable;
+use Closure;
+use DateTimeInterface;
+use Illuminate\Contracts\Auth\Access\Gate;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Facades\Date;
+use RoundlyConsulting\Lifecycle\Contracts\Guard;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
+use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
+use RoundlyConsulting\Lifecycle\Definition\Constraints\DeadlineRule;
+use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
+use RoundlyConsulting\Lifecycle\Enums\DenialCode;
+use RoundlyConsulting\Lifecycle\Exceptions\AmbiguousTransitionException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
+use RoundlyConsulting\Lifecycle\Support\Durations;
+use RoundlyConsulting\PackageToolkit\Support\Config;
+
+/**
+ * The one pipeline behind `check()`, `apply()`, schedules, rollbacks, rules and resources.
+ * Structural rows (1–3) short-circuit; every other row is evaluated and collected, so a UI
+ * can show all the reasons at once.
+ *
+ * @internal
+ */
+final readonly class GuardPipeline
+{
+    public function __construct(
+        private Container $container,
+    ) {}
+
+    /**
+     * Rows 1–3: the transition named (or the unique one leading to `$target`), or the
+     * structural denial. Several transitions to the target is a usage error.
+     */
+    public function resolve(CompiledDefinition $definition, ?string $name, mixed $target, string $current): TransitionDefinition|Denial
+    {
+        $state = $definition->state($current);
+
+        if ($name !== null) {
+            $transition = $definition->transition($name);
+
+            if ($transition === null) {
+                return Denial::of(DenialCode::UnknownTransition, ['transition' => $name, 'state' => $state->label()], source: 'structure');
+            }
+
+            $params = ['transition' => $transition->label(), 'state' => $state->label()];
+
+            if ($state->terminal) {
+                return Denial::of(DenialCode::TerminalState, $params, source: 'structure');
+            }
+
+            return $transition->leavesFrom($current)
+                ? $transition
+                : Denial::of(DenialCode::NotFromCurrentState, $params, source: 'structure');
+        }
+
+        $targetKey = $definition->key($target);
+
+        if ($state->terminal) {
+            return Denial::of(DenialCode::TerminalState, ['transition' => '', 'state' => $state->label()], source: 'structure');
+        }
+
+        $candidates = $definition->transitionsBetween($current, $targetKey);
+
+        if (count($candidates) > 1) {
+            throw AmbiguousTransitionException::between(
+                $current,
+                $targetKey,
+                array_map(static fn (TransitionDefinition $transition): string => $transition->name, $candidates),
+            );
+        }
+
+        return $candidates[0] ?? Denial::of(
+            DenialCode::NoTransitionToState,
+            ['transition' => '', 'state' => $definition->stateLabel($targetKey)],
+            source: 'structure',
+        );
+    }
+
+    /**
+     * Rows 4–19, collected.
+     */
+    public function evaluate(Evaluation $evaluation): Decision
+    {
+        return Decision::from([
+            ...$this->context($evaluation),
+            ...$this->actor($evaluation),
+            ...$this->input($evaluation),
+            ...$this->deadlines($evaluation),
+            ...$this->guards($evaluation),
+        ]);
+    }
+
+    /**
+     * Row 7: user context may not run system-only transitions; system context may run only
+     * transitions that allow it.
+     *
+     * @return list<Denial>
+     */
+    private function context(Evaluation $evaluation): array
+    {
+        $transition = $evaluation->context->transition;
+        $params = $this->params($evaluation);
+
+        if (! $evaluation->context->system && $transition->systemOnly) {
+            return [Denial::of(DenialCode::SystemOnly, $params, source: 'context')];
+        }
+
+        if ($evaluation->context->system && ! $transition->allowsSystem()) {
+            return [Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context')];
+        }
+
+        return [];
+    }
+
+    /**
+     * Rows 8–10, user context only: an actor when any actor rule exists, the actor types
+     * and closure, the Gate ability. A transition without actor rules is callable by any
+     * code path.
+     *
+     * @return list<Denial>
+     */
+    private function actor(Evaluation $evaluation): array
+    {
+        $context = $evaluation->context;
+        $transition = $context->transition;
+
+        if ($context->system || ! $transition->hasActorRules()) {
+            return [];
+        }
+
+        $params = $this->params($evaluation);
+
+        if ($context->actor === null) {
+            return [Denial::of(DenialCode::ActorRequired, $params, source: 'actor')];
+        }
+
+        $denials = [];
+        $actor = $context->actor;
+
+        $typeAllowed = $transition->actorTypes === [] || array_filter(
+            $transition->actorTypes,
+            static fn (string $type): bool => $actor instanceof $type,
+        ) !== [];
+
+        if (! $typeAllowed || ($transition->actorRule !== null && ($transition->actorRule)($actor, $context->subject) !== true)) {
+            $denials[] = Denial::of(DenialCode::ActorNotAllowed, $params, source: 'actor');
+        }
+
+        if ($transition->ability !== null && ! $this->container->make(Gate::class)->forUser($actor)->allows($transition->ability, [$context->subject, $context])) {
+            $denials[] = Denial::of(DenialCode::Unauthorized, $params, source: 'actor');
+        }
+
+        return $denials;
+    }
+
+    /**
+     * Rows 11–12. `check()` evaluates the reason and payload only when they were supplied —
+     * otherwise every transition that needs input would render as denied; `apply()` always.
+     *
+     * @return list<Denial>
+     */
+    private function input(Evaluation $evaluation): array
+    {
+        $context = $evaluation->context;
+        $transition = $context->transition;
+        $apply = $evaluation->mode === Mode::Apply;
+        $denials = [];
+
+        if (! $context->system && $transition->requiresReason && ($apply || $evaluation->reasonGiven)
+            && mb_strlen(trim((string) $context->reason)) < $transition->reasonMinLength) {
+            $denials[] = Denial::of(DenialCode::ReasonRequired, $this->params($evaluation), source: 'input');
+        }
+
+        $max = Config::using(InvalidLifecycleConfigurationException::class)
+            ->intBetween('lifecycle.history.reason_max_length', 1, 10000, 1000);
+
+        if ($context->reason !== null && mb_strlen($context->reason) > $max) {
+            $denials[] = Denial::of(DenialCode::ReasonTooLong, [...$this->params($evaluation), 'max' => $max], source: 'input');
+        }
+
+        if ($apply || $evaluation->payloadGiven) {
+            if ($evaluation->payloadErrors !== []) {
+                $denials[] = Denial::of(DenialCode::InvalidPayload, $this->params($evaluation), errors: $evaluation->payloadErrors, source: 'input');
+            } elseif ($evaluation->contextTooLarge) {
+                $denials[] = Denial::of(DenialCode::InvalidPayload, $this->params($evaluation), source: 'input');
+            }
+        }
+
+        return $denials;
+    }
+
+    /**
+     * Row 13: not before an instant (retryable, with the instant), not after a deadline (the
+     * deadline itself is still allowed). A null instant never blocks.
+     *
+     * @return list<Denial>
+     */
+    private function deadlines(Evaluation $evaluation): array
+    {
+        $context = $evaluation->context;
+        $transition = $context->transition;
+        $denials = [];
+
+        $notBefore = $this->instant($transition->notBefore, $context);
+
+        if ($notBefore !== null && $context->now->lessThan($notBefore)) {
+            $denials[] = Denial::of(
+                DenialCode::NotYetAvailable,
+                [...$this->params($evaluation), 'at' => self::display($notBefore)],
+                retryAfter: $notBefore,
+                source: 'deadline',
+            );
+        }
+
+        $notAfter = $this->instant($transition->notAfter, $context);
+
+        if ($notAfter !== null && $context->now->greaterThan($notAfter)) {
+            $denials[] = Denial::of(DenialCode::DeadlinePassed, [...$this->params($evaluation), 'at' => self::display($notAfter)], source: 'deadline');
+        }
+
+        return $denials;
+    }
+
+    /**
+     * Row 17: lifecycle-wide guards, then the transition's, in declaration order. Class
+     * strings are resolved from the container on every evaluation.
+     *
+     * @return list<Denial>
+     */
+    private function guards(Evaluation $evaluation): array
+    {
+        $denials = [];
+
+        foreach ([...$evaluation->definition->guards, ...$evaluation->context->transition->guards] as $guard) {
+            $denial = $this->resolveGuard($guard)->check($evaluation->context);
+
+            if ($denial !== null) {
+                $denials[] = $denial;
+            }
+        }
+
+        return $denials;
+    }
+
+    /**
+     * @param  Guard|class-string<Guard>  $guard
+     */
+    public function resolveGuard(Guard|string $guard): Guard
+    {
+        $resolved = is_string($guard) ? $this->container->make($guard) : $guard;
+
+        return $resolved instanceof Guard ? $resolved : throw InvalidLifecycleUsageException::invalidExtension('guard', $guard);
+    }
+
+    private function instant(?DeadlineRule $rule, TransitionContext $context): ?CarbonImmutable
+    {
+        if ($rule === null) {
+            return null;
+        }
+
+        $value = $rule->source instanceof Closure
+            ? ($rule->source)($context->subject)
+            : $context->subject->getAttribute($rule->source);
+
+        $instant = self::toUtc($value, $rule->source instanceof Closure ? 'notBefore/notAfter closure' : $rule->source);
+
+        return $instant === null || $rule->offset === null ? $instant : Durations::add($instant, $rule->offset);
+    }
+
+    /**
+     * A host datetime: a DateTimeInterface converted to UTC, a string parsed in the
+     * application timezone (as Eloquent does), null for "none".
+     */
+    public static function toUtc(mixed $value, string $attribute): ?CarbonImmutable
+    {
+        return match (true) {
+            $value === null => null,
+            $value instanceof DateTimeInterface => CarbonImmutable::instance($value)->utc(),
+            is_string($value) && $value !== '' => CarbonImmutable::instance(Date::parse($value))->utc(),
+            default => throw InvalidLifecycleUsageException::invalidDateAttribute($attribute, $value),
+        };
+    }
+
+    /**
+     * An instant as the user reads it: in the application timezone.
+     */
+    public static function display(CarbonImmutable $instant): string
+    {
+        return $instant->setTimezone(date_default_timezone_get())->format('Y-m-d H:i');
+    }
+
+    /**
+     * @return array<string, scalar>
+     */
+    private function params(Evaluation $evaluation): array
+    {
+        return [
+            'transition' => $evaluation->context->transition->label(),
+            'state' => $evaluation->definition->stateLabel($evaluation->fromKey()),
+        ];
+    }
+}

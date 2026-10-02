@@ -1,0 +1,55 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Lifecycle\Actions;
+
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
+use RoundlyConsulting\Lifecycle\Engine\RestorePoint;
+use RoundlyConsulting\Lifecycle\Engine\StateRecords;
+use RoundlyConsulting\Lifecycle\Engine\SubjectLocker;
+use RoundlyConsulting\Lifecycle\Engine\TransitionExecutor;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
+use Throwable;
+
+/**
+ * Reconciles one subject with its stored state: creates a missing record, adopts a state
+ * written outside the engine, initialises a NULL state. True when anything changed.
+ * Authorization is the host's — nothing here checks an actor.
+ */
+final readonly class AdoptLifecycleAction
+{
+    public function __construct(
+        private DefinitionRegistry $registry,
+        private StateRecords $records,
+        private SubjectLocker $locker,
+    ) {}
+
+    public function execute(Model $subject, string $lifecycle, bool $scheduleExpiry = true): bool
+    {
+        if (! $subject->exists) {
+            throw SubjectNotPersistedException::for($subject);
+        }
+
+        $definition = $this->registry->of($subject, $lifecycle);
+        $restore = RestorePoint::capture($subject);
+
+        try {
+            $changed = $subject->getConnection()->transaction(function () use ($subject, $lifecycle, $definition, $restore, $scheduleExpiry): bool {
+                $restore->restore();
+                $this->locker->lock($subject);
+
+                return $this->records->lock($subject, $lifecycle, $definition, $scheduleExpiry)->changed;
+            }, TransitionExecutor::attempts());
+        } catch (Throwable $exception) {
+            $restore->restore();
+
+            throw $exception;
+        }
+
+        RestorePoint::forgetRelations($subject);
+
+        return $changed;
+    }
+}

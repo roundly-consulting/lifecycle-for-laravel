@@ -17,4 +17,23 @@ final class InvalidLifecycleConfigurationException extends LifecycleException
             get_debug_type($value),
         ));
     }
+
+    public static function modelMustExtend(string $key, string $base): self
+    {
+        return new self(sprintf('The [%s] model must extend [%s].', $key, $base));
+    }
+
+    public static function notAList(string $key): self
+    {
+        return new self(sprintf('The [%s] setting must be a list.', $key));
+    }
+
+    public static function notADefinition(string $key, mixed $value): self
+    {
+        return new self(sprintf(
+            'Every entry of [%s] must be a LifecycleDefinition class, [%s] given.',
+            $key,
+            is_string($value) ? $value : get_debug_type($value),
+        ));
+    }
 }
