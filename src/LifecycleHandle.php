@@ -7,19 +7,31 @@ namespace RoundlyConsulting\Lifecycle;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Carbon\CarbonInterval;
+use DateInterval;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\CancelScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
+use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
+use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
+use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
+use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
+use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 
 /**
@@ -104,6 +116,23 @@ final readonly class LifecycleHandle
         }
 
         return $this->definition()->decode($raw);
+    }
+
+    /**
+     * What the state will be once an overdue expiry runs: the expiry transition's target when
+     * the pending expiry has passed (the sweep may not have run yet), else `state()`.
+     */
+    public function effectiveState(): BackedEnum|string
+    {
+        if (! $this->isExpired()) {
+            return $this->state();
+        }
+
+        $definition = $this->definition();
+        $expiresVia = $definition->state($definition->key($this->state()))->ttl->expiresVia ?? null;
+        $transition = $expiresVia === null ? null : $definition->transition($expiresVia);
+
+        return $transition === null ? $this->state() : $definition->value($transition->to);
     }
 
     public function is(BackedEnum|string|int ...$states): bool
@@ -237,6 +266,103 @@ final readonly class LifecycleHandle
         return $record !== null && $record->isFrozen(Clock::now()) ? $record->frozen_until : null;
     }
 
+    /**
+     * Run a transition at an instant, as the system; this handle's actor, reason, payload and
+     * `asSystem()` are what is checked and stored now.
+     */
+    public function schedule(string $transition, CarbonInterface $at): ScheduledTransition
+    {
+        return $this->manager->schedule(new ScheduleRequest(
+            $this->subject, $this->lifecycle, $transition, $at, $this->actor, $this->system, $this->reason, $this->payload,
+        ));
+    }
+
+    public function cancelScheduled(string $transition): bool
+    {
+        return $this->manager->cancelScheduled(new CancelScheduleRequest($this->subject, $this->lifecycle, $transition));
+    }
+
+    /**
+     * The open schedules (pending or paused) of this lifecycle, soonest first.
+     *
+     * @return list<ScheduledTransition>
+     */
+    public function scheduled(): array
+    {
+        $definition = $this->definition();
+
+        return array_map(
+            static fn (LifecycleSchedule $schedule): ScheduledTransition => $schedule->toScheduled($definition),
+            $this->openSchedules(),
+        );
+    }
+
+    public function expiresAt(): ?CarbonImmutable
+    {
+        return $this->expiry()?->expires_at;
+    }
+
+    /**
+     * A pending expiry whose instant has passed — expired, even before the sweep ran.
+     */
+    public function isExpired(): bool
+    {
+        $expiry = $this->expiry();
+
+        return $expiry !== null && $expiry->status === ScheduleStatus::Pending
+            && $expiry->expires_at !== null && $expiry->expires_at->lessThanOrEqualTo(Clock::now());
+    }
+
+    /**
+     * Expired, but the grace period still runs (the expiry transition has not run yet).
+     */
+    public function isInGrace(): bool
+    {
+        return $this->isExpired() && ($this->expiry()?->due_at->greaterThan(Clock::now()) ?? false);
+    }
+
+    public function isExpiringWithin(CarbonInterval|DateInterval|string $within): bool
+    {
+        $expiresAt = $this->expiresAt();
+        $now = Clock::now();
+
+        return $expiresAt !== null && $expiresAt->greaterThan($now)
+            && $expiresAt->lessThanOrEqualTo(Durations::add($now, Durations::parse($within)));
+    }
+
+    /**
+     * Override the expiry of the current stay with an instant.
+     */
+    public function expireAt(CarbonInterface $at): CarbonImmutable
+    {
+        return $this->changeExpiry(ExpiryChange::Set, at: $at);
+    }
+
+    public function extend(CarbonInterval|DateInterval|string $by): CarbonImmutable
+    {
+        return $this->changeExpiry(ExpiryChange::Extend, interval: Durations::parse($by));
+    }
+
+    /**
+     * Expire `$for` from now (the state's TTL when null).
+     */
+    public function renew(CarbonInterval|DateInterval|string|null $for = null): CarbonImmutable
+    {
+        return $this->changeExpiry(ExpiryChange::Renew, interval: $for === null ? null : Durations::parse($for));
+    }
+
+    /**
+     * Clear the pending expiry of the current stay; true when there was one.
+     */
+    public function neverExpire(): bool
+    {
+        $had = $this->expiresAt() !== null;
+
+        $this->manager->changeExpiry(new ExpiryChangeRequest($this->subject, $this->lifecycle, ExpiryChange::Clear, actor: $this->actor));
+
+        return $had;
+    }
+
     public function adopt(): bool
     {
         return $this->manager->adopt($this->subject, $this->lifecycle);
@@ -256,6 +382,48 @@ final readonly class LifecycleHandle
             expectedVersion: $this->expectedVersion,
             idempotencyKey: $this->idempotencyKey,
         );
+    }
+
+    private function changeExpiry(ExpiryChange $change, ?CarbonInterface $at = null, ?CarbonInterval $interval = null): CarbonImmutable
+    {
+        return $this->manager->changeExpiry(new ExpiryChangeRequest($this->subject, $this->lifecycle, $change, $at, $interval, $this->actor))
+            ?? throw ExpiryException::noPendingExpiry($this->lifecycle);
+    }
+
+    private function expiry(): ?LifecycleSchedule
+    {
+        foreach ($this->openSchedules() as $schedule) {
+            if ($schedule->pending_slot === ScheduleBook::EXPIRY_SLOT) {
+                return $schedule;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<LifecycleSchedule>
+     */
+    private function openSchedules(): array
+    {
+        if ($this->subject->relationLoaded('lifecycleSchedules')) {
+            $loaded = $this->subject->getRelation('lifecycleSchedules');
+            $schedules = [];
+
+            if (is_iterable($loaded)) {
+                foreach ($loaded as $schedule) {
+                    if ($schedule instanceof LifecycleSchedule && $schedule->lifecycle === $this->lifecycle && $schedule->status->isOpen()) {
+                        $schedules[] = $schedule;
+                    }
+                }
+            }
+
+            usort($schedules, static fn (LifecycleSchedule $a, LifecycleSchedule $b): int => [$a->due_at, $a->id] <=> [$b->due_at, $b->id]);
+
+            return $schedules;
+        }
+
+        return $this->subject->exists ? app(ScheduleBook::class)->openRows($this->subject, $this->lifecycle) : [];
     }
 
     private function record(): ?LifecycleState

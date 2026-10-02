@@ -5,15 +5,23 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle\Testing;
 
 use BackedEnum;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\CancelScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
@@ -23,12 +31,16 @@ use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
+use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
+use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
+use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\Durations;
 
 /**
  * Installed by `Lifecycles::fake()`. A manager subtype, so injected managers are faked too.
@@ -196,6 +208,71 @@ final class LifecycleFake extends LifecycleManager
         return true;
     }
 
+    public function schedule(ScheduleRequest $request): ScheduledTransition
+    {
+        $this->sequence++;
+        $definition = $this->definitions()->of($request->subject, $request->lifecycle);
+        $current = $this->current($request->subject, $request->lifecycle, $definition);
+
+        $scheduled = new ScheduledTransition(
+            id: $this->sequence,
+            lifecycle: $request->lifecycle,
+            kind: ScheduleKind::Transition,
+            transition: $request->transition,
+            forState: $definition->value($current),
+            dueAt: Clock::utc($request->at),
+            expiresAt: null,
+            status: ScheduleStatus::Pending,
+            attempts: 0,
+            nextWarnAt: null,
+        );
+
+        $this->calls[] = new RecordedCall('schedule', $request, $scheduled);
+
+        return $scheduled;
+    }
+
+    public function cancelScheduled(CancelScheduleRequest $request): bool
+    {
+        $this->calls[] = new RecordedCall('cancelScheduled', $request, true);
+
+        return true;
+    }
+
+    public function changeExpiry(ExpiryChangeRequest $request): ?CarbonImmutable
+    {
+        $result = match ($request->change) {
+            ExpiryChange::Set => $request->at === null ? null : Clock::utc($request->at),
+            ExpiryChange::Clear => null,
+            default => $request->interval === null ? null : Durations::add(Clock::now(), $request->interval),
+        };
+
+        $this->calls[] = new RecordedCall('changeExpiry', $request, $result);
+
+        return $result;
+    }
+
+    public function runDueSchedules(SweepOptions $options): SweepResult
+    {
+        $this->calls[] = new RecordedCall('runDueSchedules', $options, new SweepResult);
+
+        return new SweepResult;
+    }
+
+    public function sendExpiryWarnings(SweepOptions $options): int
+    {
+        $this->calls[] = new RecordedCall('sendExpiryWarnings', $options, 0);
+
+        return 0;
+    }
+
+    public function retrySchedule(int $scheduleId): bool
+    {
+        $this->calls[] = new RecordedCall('retrySchedule', new SweepOptions($scheduleId), false);
+
+        return false;
+    }
+
     public function adopt(Model $subject, ?string $lifecycle = null): bool
     {
         $this->calls[] = new RecordedCall('adopt', $subject, false);
@@ -224,6 +301,11 @@ final class LifecycleFake extends LifecycleManager
      * @internal
      */
     public function subjectDeleted(Model $subject, bool $forced): void {}
+
+    /**
+     * @internal
+     */
+    public function subjectRestored(Model $subject): void {}
 
     /**
      * @return list<RecordedCall>
@@ -311,6 +393,57 @@ final class LifecycleFake extends LifecycleManager
         $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'freeze'));
 
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be frozen, but %d freeze(s) were recorded.', $count));
+    }
+
+    public function assertScheduled(Model $subject, string $transition, ?CarbonInterface $at = null): void
+    {
+        $matching = array_filter(
+            $this->requests('schedule', $subject, null),
+            static fn (object $request): bool => $request instanceof ScheduleRequest && $request->transition === $transition
+                && ($at === null || Clock::utc($request->at)->equalTo(Clock::utc($at))),
+        );
+
+        PHPUnit::assertNotEmpty($matching, sprintf('Expected [%s] to be scheduled for [%s], but it was not.', $subject::class, $transition));
+    }
+
+    public function assertNothingScheduled(): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'schedule'));
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be scheduled, but %d schedule(s) were recorded.', $count));
+    }
+
+    public function assertExpiryChanged(Model $subject, ?ExpiryChange $change = null): void
+    {
+        $matching = array_filter(
+            $this->requests('changeExpiry', $subject, null),
+            static fn (object $request): bool => $request instanceof ExpiryChangeRequest && ($change === null || $request->change === $change),
+        );
+
+        PHPUnit::assertNotEmpty($matching, sprintf('Expected the expiry of [%s] to change, but it did not.', $subject::class));
+    }
+
+    public function assertNoExpiryChanged(): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'changeExpiry'));
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no expiry change, but %d were recorded.', $count));
+    }
+
+    public function assertSwept(?int $times = null): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'runDueSchedules'));
+
+        $times === null
+            ? PHPUnit::assertGreaterThan(0, $count, 'Expected a lifecycle sweep, but none ran.')
+            : PHPUnit::assertSame($times, $count, sprintf('Expected %d lifecycle sweep(s), but %d ran.', $times, $count));
+    }
+
+    public function assertNotSwept(): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'runDueSchedules'));
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no lifecycle sweep, but %d ran.', $count));
     }
 
     public function assertAdopted(?Model $subject = null): void

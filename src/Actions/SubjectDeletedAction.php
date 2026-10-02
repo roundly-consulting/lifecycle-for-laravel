@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
+use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
@@ -13,9 +14,9 @@ use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
- * Runs from the `deleted` model event. A force delete (or deleting a model without soft
- * deletes) purges the subject's records, history and schedules unless
- * `history.purge_on_force_delete` is off.
+ * Runs from the `deleted` model event. A soft delete pauses the subject's pending
+ * schedules; a force delete (or deleting a model without soft deletes) purges its records,
+ * history and schedules unless `history.purge_on_force_delete` is off.
  *
  * @internal
  */
@@ -23,11 +24,19 @@ final readonly class SubjectDeletedAction
 {
     public function __construct(
         private DefinitionRegistry $registry,
+        private ScheduleBook $schedules,
     ) {}
 
     public function execute(Model $subject, bool $forced): void
     {
-        if (! $forced || ! Config::boolean('lifecycle.history.purge_on_force_delete', true)) {
+        if (! $forced) {
+            // Soft-deleted: pending schedules wait until the subject is restored.
+            Transactions::run($subject, fn () => $this->schedules->pause($subject));
+
+            return;
+        }
+
+        if (! Config::boolean('lifecycle.history.purge_on_force_delete', true)) {
             return;
         }
 

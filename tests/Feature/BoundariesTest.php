@@ -8,6 +8,7 @@ use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 
 /**
  * A limit `t` is reached when now ≥ t — except `notAfter`, whose deadline itself is still
@@ -56,4 +57,16 @@ it('ends a minimum dwell and a cooldown exactly at the limit', function (): void
 
     Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 11:30:00', 'UTC'));
     expect(Lifecycles::for($document)->can('undo'))->toBeTrue();
+});
+
+it('expires exactly at the expiry instant', function (): void {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 10:00:00', 'UTC'));
+    $listing = Listing::factory()->create();
+    $listing->transition('publish');
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-11-01 09:59:59', 'UTC'));
+    expect(Lifecycles::for($listing)->isExpired())->toBeFalse();
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC'));
+    expect(Lifecycles::for($listing)->isExpired())->toBeTrue();
 });

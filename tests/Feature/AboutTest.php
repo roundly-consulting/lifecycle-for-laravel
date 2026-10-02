@@ -18,6 +18,8 @@ it('renders its about section', function (): void {
         'State model', 'LifecycleState',
         'History model', 'LifecycleTransition',
         'Schedule model', 'LifecycleSchedule',
+        'Schedule batch size', '500',
+        'Queued sweeps', 'OFF',
     ]);
 });
 

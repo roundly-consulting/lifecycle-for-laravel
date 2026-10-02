@@ -114,6 +114,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Schedules & expiry
+    |--------------------------------------------------------------------------
+    |
+    | `lifecycle:sweep` runs due expiries and scheduled transitions in keyset
+    | batches of `batch_size` (1..10000), at most `max_per_run` (1..1000000) per
+    | run. A scheduled transition refused only for retryable reasons is retried
+    | after `retry_after` until `max_attempts` (1..100). With `queue.enabled`
+    | the sweep dispatches one job per schedule instead of running it inline.
+    |
+    */
+
+    'schedules' => [
+        'batch_size' => 500,
+        'max_per_run' => 10000,
+        'max_attempts' => 5,
+        'retry_after' => '5 minutes',
+        'queue' => [
+            'enabled' => env('LIFECYCLE_QUEUE_SWEEPS', false),
+            'connection' => env('LIFECYCLE_QUEUE_CONNECTION'),
+            'name' => env('LIFECYCLE_QUEUE'),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Rate limits
     |--------------------------------------------------------------------------
     |

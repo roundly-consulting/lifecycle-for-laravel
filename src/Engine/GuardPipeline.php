@@ -117,6 +117,39 @@ final readonly class GuardPipeline
     }
 
     /**
+     * The schedule-time subset (§3.5): freeze and seal, who may schedule it (a `systemOnly()`
+     * transition only from system code; it must allow system context at all), the scheduling
+     * actor's rules, the reason and payload — which are stored — and no `sensitive()` key may
+     * be required, since sensitive keys are never stored. Time rows, quotas and rate limits
+     * are evaluated when the schedule runs.
+     */
+    public function evaluateSchedule(Evaluation $evaluation): Decision
+    {
+        $transition = $evaluation->context->transition;
+        $params = $this->params($evaluation);
+        $denials = $this->record($evaluation);
+
+        if (! $transition->allowsSystem()) {
+            $denials[] = Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context');
+        } elseif ($transition->systemOnly && ! $evaluation->context->system) {
+            $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
+        }
+
+        $denials = [...$denials, ...$this->actor($evaluation), ...$this->input($evaluation)];
+
+        foreach ($transition->sensitive as $key) {
+            $rule = $transition->rules[$key] ?? [];
+            $rules = is_string($rule) ? explode('|', $rule) : (is_array($rule) ? $rule : []);
+
+            if (in_array('required', $rules, true)) {
+                $denials[] = Denial::of(DenialCode::InvalidPayload, $params, errors: [$key => ['A sensitive value cannot be scheduled.']], source: 'input');
+            }
+        }
+
+        return Decision::from($denials);
+    }
+
+    /**
      * Row 19 in Apply mode: count one hit per rule; a rule over its limit refuses. Hits are
      * never refunded, even when the transaction later fails.
      */

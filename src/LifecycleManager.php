@@ -4,23 +4,39 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle;
 
+use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
+use RoundlyConsulting\Lifecycle\Accessors\SchedulesAccessor;
 use RoundlyConsulting\Lifecycle\Actions\AdoptLifecycleAction;
 use RoundlyConsulting\Lifecycle\Actions\AdoptModelLifecyclesAction;
 use RoundlyConsulting\Lifecycle\Actions\ApplyTransitionAction;
+use RoundlyConsulting\Lifecycle\Actions\CancelScheduledTransitionAction;
+use RoundlyConsulting\Lifecycle\Actions\ChangeExpiryAction;
 use RoundlyConsulting\Lifecycle\Actions\CheckTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\FreezeAction;
 use RoundlyConsulting\Lifecycle\Actions\InitializeLifecycleAction;
 use RoundlyConsulting\Lifecycle\Actions\ListAvailableTransitionsAction;
+use RoundlyConsulting\Lifecycle\Actions\RetryScheduleAction;
+use RoundlyConsulting\Lifecycle\Actions\RunDueSchedulesAction;
+use RoundlyConsulting\Lifecycle\Actions\ScheduleTransitionAction;
+use RoundlyConsulting\Lifecycle\Actions\SendExpiryWarningsAction;
 use RoundlyConsulting\Lifecycle\Actions\SubjectDeletedAction;
+use RoundlyConsulting\Lifecycle\Actions\SubjectRestoredAction;
+use RoundlyConsulting\Lifecycle\Actions\SyncExpiryAttributeAction;
 use RoundlyConsulting\Lifecycle\Actions\UnfreezeAction;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\CancelScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
@@ -70,6 +86,11 @@ class LifecycleManager
         return new DefinitionsAccessor($this->container);
     }
 
+    public function schedules(): SchedulesAccessor
+    {
+        return new SchedulesAccessor($this, $this->registry());
+    }
+
     public function apply(TransitionRequest $request): TransitionResult
     {
         return $this->container->make(ApplyTransitionAction::class)->execute($request);
@@ -114,6 +135,51 @@ class LifecycleManager
     public function unfreeze(UnfreezeRequest $request): bool
     {
         return $this->container->make(UnfreezeAction::class)->execute($request);
+    }
+
+    /**
+     * Run a transition later, as the system (one pending schedule per transition).
+     */
+    public function schedule(ScheduleRequest $request): ScheduledTransition
+    {
+        return $this->container->make(ScheduleTransitionAction::class)->execute($request);
+    }
+
+    public function cancelScheduled(CancelScheduleRequest $request): bool
+    {
+        return $this->container->make(CancelScheduledTransitionAction::class)->execute($request);
+    }
+
+    /**
+     * Set, extend, renew or clear the pending expiry of the current stay.
+     */
+    public function changeExpiry(ExpiryChangeRequest $request): ?CarbonImmutable
+    {
+        return $this->container->make(ChangeExpiryAction::class)->execute($request);
+    }
+
+    public function runDueSchedules(SweepOptions $options): SweepResult
+    {
+        return $this->container->make(RunDueSchedulesAction::class)->execute($options);
+    }
+
+    public function sendExpiryWarnings(SweepOptions $options): int
+    {
+        return $this->container->make(SendExpiryWarningsAction::class)->execute($options);
+    }
+
+    public function retrySchedule(int $scheduleId): bool
+    {
+        return $this->container->make(RetryScheduleAction::class)->execute($scheduleId);
+    }
+
+    /**
+     * Expiry warnings, then every due schedule — what `lifecycle:sweep` runs. A null queue
+     * flag follows `schedules.queue.enabled`.
+     */
+    public function sweep(?int $limit = null, ?bool $queue = null): SweepResult
+    {
+        return $this->runDueSchedules(new SweepOptions($limit, $queue, warnings: true));
     }
 
     /**
@@ -221,7 +287,7 @@ class LifecycleManager
 
     /**
      * `saved`: a lifecycle attribute changed by an allowed direct write is adopted right away,
-     * so model saves never leave drift behind.
+     * so model saves never leave drift behind; an attribute-based expiry follows its attribute.
      *
      * @internal
      */
@@ -238,6 +304,8 @@ class LifecycleManager
                 $this->container->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle);
             }
         }
+
+        $this->container->make(SyncExpiryAttributeAction::class)->execute($subject);
     }
 
     /**
@@ -248,6 +316,16 @@ class LifecycleManager
     public function subjectDeleted(Model $subject, bool $forced): void
     {
         $this->container->make(SubjectDeletedAction::class)->execute($subject, $forced);
+    }
+
+    /**
+     * `restored`: paused schedules are pending again.
+     *
+     * @internal
+     */
+    public function subjectRestored(Model $subject): void
+    {
+        $this->container->make(SubjectRestoredAction::class)->execute($subject);
     }
 
     protected function registry(): DefinitionRegistry

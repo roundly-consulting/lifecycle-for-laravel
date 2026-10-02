@@ -24,3 +24,11 @@ it('reads strict_writes and actor.from_auth as booleans in the about section', f
     expect($output)->toMatch('/Strict state writes\W+'.$shown.'\b/')
         ->and($output)->toMatch('/Actor from auth\W+'.$shown.'\b/');
 })->with('booleans');
+
+it('reads schedules.queue.enabled as a boolean', function (string|bool $value, bool $expected): void {
+    config()->set('lifecycle.schedules.queue.enabled', $value);
+
+    Artisan::call('about', ['--only' => 'lifecycle']);
+
+    expect(Artisan::output())->toMatch('/Queued sweeps\W+'.($expected ? 'ON' : 'OFF').'\b/');
+})->with('booleans');

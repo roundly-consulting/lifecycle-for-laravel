@@ -69,7 +69,7 @@ it('forgets loaded records after a mutation', function (): void {
     expect($listing->relationLoaded('lifecycleStates'))->toBeFalse()
         ->and(Lifecycles::for($listing)->version())->toBe(2)
         ->and($listing->lifecycleHistory()->count())->toBe(2)
-        ->and($listing->lifecycleSchedules()->count())->toBe(0);
+        ->and($listing->lifecycleSchedules()->count())->toBe(1); // the active state's expiry
 });
 
 it('reports a subject without a state', function (): void {

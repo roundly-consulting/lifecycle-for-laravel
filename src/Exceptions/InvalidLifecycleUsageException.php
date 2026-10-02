@@ -74,4 +74,12 @@ final class InvalidLifecycleUsageException extends LifecycleException
     {
         return new self(sprintf('The quota [%s] resolved to a negative maximum (%d).', $quota, $max));
     }
+
+    public static function invalidTtl(mixed $value): self
+    {
+        return new self(sprintf(
+            'A TTL closure must return an interval, an instant or null, %s returned.',
+            get_debug_type($value),
+        ));
+    }
 }

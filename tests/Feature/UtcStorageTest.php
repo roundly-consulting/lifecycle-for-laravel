@@ -22,3 +22,14 @@ it('stores every package instant as a UTC string', function (): void {
 
     Carbon::setTestNow();
 });
+
+it('keeps a 30-day TTL at 720 hours across the October DST change', function (): void {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-10 12:00:00', 'Europe/Bratislava'));
+    $listing = Listing::factory()->create();
+    $listing->transition('publish');
+
+    $expires = DB::table('lifecycle_schedules')->value('expires_at');
+
+    expect(CarbonImmutable::parse($expires, 'UTC')->diffInHours(CarbonImmutable::parse('2026-10-10 10:00:00', 'UTC'), true))->toEqual(720.0);
+    Carbon::setTestNow();
+});

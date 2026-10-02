@@ -51,6 +51,19 @@ final class ScheduleModel
     }
 
     /**
+     * Rows on the default connection — the sweep's view; package tables of subjects on
+     * other connections are swept by pointing the default at them.
+     *
+     * @return Builder<LifecycleSchedule>
+     */
+    public static function query(): Builder
+    {
+        $class = self::class();
+
+        return (new $class)->newQuery();
+    }
+
+    /**
      * Rows of one subject's lifecycle.
      *
      * @return Builder<LifecycleSchedule>

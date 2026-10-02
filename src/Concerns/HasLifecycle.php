@@ -15,6 +15,8 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use RoundlyConsulting\Lifecycle\Contracts\LifecycleSubject;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
+use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
+use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\LifecycleHandle;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
@@ -47,6 +49,9 @@ trait HasLifecycle
         static::updating(static fn (Model $subject) => self::lifecycleManager()->guardDirectWrite($subject));
         static::saved(static fn (Model $subject) => self::lifecycleManager()->subjectSaved($subject));
         static::deleted(static fn (Model $subject) => self::lifecycleManager()->subjectDeleted($subject, SoftDeletion::isForceDeleting($subject)));
+        // Model::restored() exists only on SoftDeletes models; registering the event directly
+        // keeps a plain model bootable.
+        static::registerModelEvent('restored', static fn (Model $subject) => self::lifecycleManager()->subjectRestored($subject));
     }
 
     /**
@@ -153,6 +158,100 @@ trait HasLifecycle
         $this->whereLifecycleRecord($query, $lifecycle, static function (QueryBuilder $records, string $table) use ($cutoff): void {
             $records->where($table.'.entered_at', '<=', $cutoff);
         });
+    }
+
+    /**
+     * Subjects whose pending expiry has passed (in grace or not) — expired before the sweep ran.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereExpired(Builder $query, ?string $lifecycle = null): void
+    {
+        $now = Clock::format(Clock::now());
+
+        $this->whereLifecycleExpiry($query, $lifecycle, static fn (QueryBuilder $rows, string $table) => $rows->where($table.'.expires_at', '<=', $now));
+    }
+
+    /**
+     * Subjects without a passed pending expiry.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereNotExpired(Builder $query, ?string $lifecycle = null): void
+    {
+        $now = Clock::format(Clock::now());
+
+        $this->whereLifecycleExpiry($query, $lifecycle, static fn (QueryBuilder $rows, string $table) => $rows->where($table.'.expires_at', '<=', $now), not: true);
+    }
+
+    /**
+     * Subjects that expire after now and within `$within`.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereExpiringWithin(Builder $query, CarbonInterval|DateInterval|string $within, ?string $lifecycle = null): void
+    {
+        $now = Clock::now();
+        $until = Clock::format(Durations::add($now, Durations::parse($within)));
+        $from = Clock::format($now);
+
+        $this->whereLifecycleExpiry($query, $lifecycle, static fn (QueryBuilder $rows, string $table) => $rows
+            ->where($table.'.expires_at', '>', $from)
+            ->where($table.'.expires_at', '<=', $until));
+    }
+
+    /**
+     * Subjects past their expiry but still within its grace period.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereInGrace(Builder $query, ?string $lifecycle = null): void
+    {
+        $now = Clock::format(Clock::now());
+
+        $this->whereLifecycleExpiry($query, $lifecycle, static fn (QueryBuilder $rows, string $table) => $rows
+            ->where($table.'.expires_at', '<=', $now)
+            ->where($table.'.due_at', '>', $now));
+    }
+
+    /**
+     * Eager-load the state records and open schedules, so handles and resources read them
+     * without a query per subject.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWithLifecycle(Builder $query): void
+    {
+        $query->with([
+            'lifecycleStates',
+            'lifecycleSchedules' => static fn ($schedules) => $schedules->whereIn('status', [ScheduleStatus::Pending->value, ScheduleStatus::Paused->value]),
+        ]);
+    }
+
+    /**
+     * A correlated `exists` on the pending expiry row of one lifecycle.
+     *
+     * @param  Builder<static>  $query
+     * @param  Closure(QueryBuilder, string): mixed  $constraint
+     */
+    private function whereLifecycleExpiry(Builder $query, ?string $lifecycle, Closure $constraint, bool $not = false): void
+    {
+        $name = $this->lifecycle($lifecycle)->lifecycle;
+        $table = ScheduleModel::newFor($this)->getTable();
+        $morph = $this->getMorphClass();
+        $key = $this->getQualifiedKeyName();
+
+        $query->whereExists(static function (QueryBuilder $rows) use ($table, $morph, $key, $name, $constraint): void {
+            $rows->selectRaw('1')
+                ->from($table)
+                ->where($table.'.subject_type', $morph)
+                ->whereColumn($table.'.subject_id', $key)
+                ->where($table.'.lifecycle', $name)
+                ->where($table.'.pending_slot', ScheduleBook::EXPIRY_SLOT)
+                ->where($table.'.status', ScheduleStatus::Pending->value);
+
+            $constraint($rows, $table);
+        }, not: $not);
     }
 
     /**
