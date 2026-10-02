@@ -33,7 +33,7 @@ final class GraphCommand extends Command
         }
 
         try {
-            $graph = $lifecycle->definitions()->render($arguments->definition((string) $this->argument('definition')), $graphFormat);
+            $graph = $lifecycle->definitions()->render($arguments->definition(ResolvesLifecycleArguments::string($this->argument('definition'))), $graphFormat);
         } catch (LifecycleException $exception) {
             $this->error($exception->getMessage());
 

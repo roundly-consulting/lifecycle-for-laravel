@@ -34,6 +34,14 @@ final readonly class ResolvesLifecycleArguments
     }
 
     /**
+     * A console argument as a string (an absent or non-string one is empty).
+     */
+    public static function string(mixed $value): string
+    {
+        return is_string($value) || is_int($value) ? (string) $value : '';
+    }
+
+    /**
      * @return class-string<Model&LifecycleSubject>
      */
     public function model(string $argument): string

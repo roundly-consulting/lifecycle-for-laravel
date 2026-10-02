@@ -29,7 +29,7 @@ final class AdoptCommand extends Command
             $chunk = IntegerOption::parse($this->option('chunk'), 'chunk') ?? 500;
             $option = $this->option('lifecycle');
             $count = $lifecycle->adoptAll(
-                $arguments->model((string) $this->argument('model')),
+                $arguments->model(ResolvesLifecycleArguments::string($this->argument('model'))),
                 is_string($option) && $option !== '' ? $option : null,
                 $chunk,
                 $this->option('no-expiry') !== true,

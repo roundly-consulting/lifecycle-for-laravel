@@ -29,11 +29,11 @@ final class ShowCommand extends Command
     {
         try {
             $limit = IntegerOption::parse($this->option('history'), 'history', 0) ?? 10;
-            $class = $arguments->model((string) $this->argument('subject'));
+            $class = $arguments->model(ResolvesLifecycleArguments::string($this->argument('subject')));
             $subject = (new $class)->newQueryWithoutScopes()->find($this->argument('id'));
 
             if ($subject === null) {
-                $this->error(sprintf('No [%s] with key [%s].', $class, (string) $this->argument('id')));
+                $this->error(sprintf('No [%s] with key [%s].', $class, ResolvesLifecycleArguments::string($this->argument('id'))));
 
                 return self::FAILURE;
             }
