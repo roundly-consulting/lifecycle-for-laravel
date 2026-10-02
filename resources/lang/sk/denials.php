@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'unknown_transition' => 'Prechod „:transition“ neexistuje.',
+    'no_transition_to_state' => 'Z aktuálneho stavu neexistuje prechod do stavu „:state“.',
+    'terminal_state' => 'Aktuálny stav „:state“ je konečný.',
+    'not_from_current_state' => 'Prechod „:transition“ nie je z aktuálneho stavu „:state“ dostupný.',
+    'stale_version' => 'Záznam sa medzitým zmenil. Načítajte ho znova a skúste to ešte raz.',
+    'frozen' => 'Tento záznam je zmrazený.',
+    'sealed' => 'Stav „:state“ je uzamknutý a už ho nie je možné opustiť.',
+    'system_only' => 'Prechod „:transition“ môže vykonať iba systém.',
+    'system_not_allowed' => 'Systém nemôže vykonať prechod „:transition“.',
+    'actor_required' => 'Na vykonanie prechodu „:transition“ sa musíte prihlásiť.',
+    'actor_not_allowed' => 'Nemáte povolené vykonať prechod „:transition“.',
+    'unauthorized' => 'Nemáte oprávnenie vykonať prechod „:transition“.',
+    'reason_required' => 'Je potrebné uviesť dôvod.',
+    'reason_too_long' => 'Dôvod môže mať najviac :max znakov.',
+    'invalid_payload' => 'Zadané údaje nie sú platné.',
+    'deadline_passed' => 'Termín pre prechod „:transition“ už uplynul.',
+    'not_yet_available' => 'Prechod „:transition“ bude dostupný od :at.',
+    'min_dwell_not_reached' => 'Prechod „:transition“ bude dostupný od :at.',
+    'cooldown_active' => 'Prechod „:transition“ bol vykonaný nedávno. Skúste to znova od :at.',
+    'max_occurrences_reached' => 'Prechod „:transition“ je možné vykonať najviac :max-krát.',
+    'guard_failed' => 'Prechod teraz nie je povolený.',
+    'quota_exceeded' => 'Limit :max pre stav „:state“ bol dosiahnutý.',
+    'rate_limited' => 'Príliš veľa pokusov. Skúste to znova od :at.',
+    'nothing_to_rollback' => 'Nie je čo vrátiť späť.',
+    'not_on_path' => 'K tomuto záznamu histórie sa nie je možné vrátiť.',
+    'state_mismatch' => 'Záznam už nie je v stave, ktorý táto zmena vytvorila.',
+    'irreversible' => 'Prechod „:transition“ nie je možné vrátiť späť.',
+    'not_reversible' => 'Túto zmenu nie je možné vrátiť späť.',
+    'rollback_window_passed' => 'Čas na vrátenie prechodu „:transition“ uplynul.',
+    'rollback_conflict' => 'Záznam sa po prechode „:transition“ zmenil, preto ho nie je možné bezpečne vrátiť.',
+];

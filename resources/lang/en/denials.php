@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'unknown_transition' => 'The transition ":transition" does not exist.',
+    'no_transition_to_state' => 'There is no transition to ":state" from the current state.',
+    'terminal_state' => 'The current state ":state" is final.',
+    'not_from_current_state' => 'The transition ":transition" is not available from the current state ":state".',
+    'stale_version' => 'The record was changed in the meantime. Reload it and try again.',
+    'frozen' => 'This record is frozen.',
+    'sealed' => 'The state ":state" is sealed and can no longer be left.',
+    'system_only' => 'Only the system can perform ":transition".',
+    'system_not_allowed' => 'The system cannot perform ":transition".',
+    'actor_required' => 'You must be signed in to perform ":transition".',
+    'actor_not_allowed' => 'You are not allowed to perform ":transition".',
+    'unauthorized' => 'You are not authorized to perform ":transition".',
+    'reason_required' => 'A reason is required.',
+    'reason_too_long' => 'The reason may not be longer than :max characters.',
+    'invalid_payload' => 'The given data is invalid.',
+    'deadline_passed' => 'The deadline for ":transition" has passed.',
+    'not_yet_available' => '":transition" is available from :at.',
+    'min_dwell_not_reached' => '":transition" is available from :at.',
+    'cooldown_active' => '":transition" was performed recently. Try again from :at.',
+    'max_occurrences_reached' => '":transition" can be performed at most :max times.',
+    'guard_failed' => 'The transition is not allowed right now.',
+    'quota_exceeded' => 'The limit of :max for ":state" has been reached.',
+    'rate_limited' => 'Too many attempts. Try again from :at.',
+    'nothing_to_rollback' => 'There is nothing to roll back.',
+    'not_on_path' => 'That history entry cannot be rolled back to.',
+    'state_mismatch' => 'The record is no longer in the state this change produced.',
+    'irreversible' => 'The transition ":transition" cannot be undone.',
+    'not_reversible' => 'This change cannot be undone.',
+    'rollback_window_passed' => 'The time to undo ":transition" has passed.',
+    'rollback_conflict' => 'The record was changed after ":transition", so it cannot be undone safely.',
+];

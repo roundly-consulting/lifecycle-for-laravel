@@ -16,12 +16,15 @@ use Illuminate\Foundation\Application;
  * are token-scraped from `src/` — plus a sibling `database/` and `routes/` when they exist —
  * so a key read from outside that scope (a view, a directory this call does not name) scrapes
  * as unread and is reported exactly like a dead one: widen the scanned directories rather
- * than allow-list it. The call below passes no options; `toSatisfyConfigContract` in
- * testing-for-laravel documents the ones a growing package needs, such as excluding a file
- * that renders keys instead of reading them.
+ * than allow-list it.
  */
 it('ships exactly the config keys it reads', function (): void {
-    expect(__DIR__.'/../config/lifecycle.php')->toSatisfyConfigContract(__DIR__.'/../src');
+    // The toolkit readers (Config::using()->intBetween/enum, KeyType::fromConfig,
+    // ModelResolver::for) and Durations::fromConfig are invisible to the token scraper, which
+    // only counts config()/Config::get-style reads — the prefix makes their key literals count.
+    expect(__DIR__.'/../config/lifecycle.php')->toSatisfyConfigContract(__DIR__.'/../src', [
+        'extraReadPrefixes' => ['lifecycle.'],
+    ]);
 });
 
 it('never claims a config handle Laravel ships itself', function (): void {

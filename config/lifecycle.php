@@ -6,16 +6,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Enabled
+    | Graph export
     |--------------------------------------------------------------------------
     |
-    | Placeholder setting so the service provider has something real to merge,
-    | publish, and report via `php artisan about`. Replace with the package's
-    | real configuration — every key here must be read somewhere under src/,
-    | and ConfigContractTest enforces both directions.
+    | The format `lifecycle:graph` and the graph() helpers use when none is
+    | given: "mermaid" (a state diagram) or "dot" (Graphviz).
     |
     */
 
-    'enabled' => env('LIFECYCLE_ENABLED', true),
+    'graph' => [
+        'default_format' => 'mermaid',
+    ],
 
 ];
