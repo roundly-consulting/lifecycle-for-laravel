@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace RoundlyConsulting\PackageTemplate\Tests;
+namespace RoundlyConsulting\Lifecycle\Tests;
 
 use Illuminate\Support\ServiceProvider;
-use RoundlyConsulting\PackageTemplate\PackageTemplateServiceProvider;
+use RoundlyConsulting\Lifecycle\LifecycleServiceProvider;
 use RoundlyConsulting\Testing\PackageTestCase;
 
 abstract class TestCase extends PackageTestCase
@@ -13,10 +13,10 @@ abstract class TestCase extends PackageTestCase
     /** @return list<class-string<ServiceProvider>> */
     protected function packageProviders(): array
     {
-        return [PackageTemplateServiceProvider::class];
+        return [LifecycleServiceProvider::class];
     }
 
     // No migrationSources() override — the base case defaults to []. Add one once the
-    // package ships migrations: return [PackageTemplateServiceProvider::class] (never a
+    // package ships migrations: return [LifecycleServiceProvider::class] (never a
     // literal filename) once ->hasMigrations() is wired in the provider.
 }

@@ -16,6 +16,6 @@ return [
     |
     */
 
-    'enabled' => env('PACKAGE_TEMPLATE_ENABLED', true),
+    'enabled' => env('LIFECYCLE_ENABLED', true),
 
 ];

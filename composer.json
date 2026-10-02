@@ -1,11 +1,18 @@
 {
-    "name": "roundly-consulting/package-template-for-laravel",
-    "description": "TODO: replace with a one-line description of the new package.",
+    "name": "roundly-consulting/lifecycle-for-laravel",
+    "description": "Status lifecycles for Eloquent models: guarded named transitions, limits and quotas, expiry and scheduled transitions, rollbacks and an append-only history.",
     "keywords": [
         "roundly-consulting",
-        "laravel"
+        "laravel",
+        "state-machine",
+        "lifecycle",
+        "workflow",
+        "status",
+        "transitions",
+        "expiry",
+        "audit-trail"
     ],
-    "homepage": "https://github.com/roundly-consulting/package-template-for-laravel",
+    "homepage": "https://github.com/roundly-consulting/lifecycle-for-laravel",
     "license": "MIT",
     "authors": [
         {
@@ -29,6 +36,18 @@
         },
         {
             "type": "path",
+            "url": "../enums-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/enums-for-laravel",
+            "no-api": true
+        },
+        {
+            "type": "path",
             "url": "../testing-for-laravel*",
             "options": {
                 "symlink": true
@@ -42,7 +61,17 @@
     ],
     "require": {
         "php": "^8.4",
+        "illuminate/bus": "^12.0|^13.0",
+        "illuminate/cache": "^12.0|^13.0",
+        "illuminate/console": "^12.0|^13.0",
         "illuminate/contracts": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/events": "^12.0|^13.0",
+        "illuminate/http": "^12.0|^13.0",
+        "illuminate/queue": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/validation": "^12.0|^13.0",
+        "roundly-consulting/enums-for-laravel": "@dev",
         "roundly-consulting/package-toolkit-for-laravel": "@dev"
     },
     "require-dev": {
@@ -58,12 +87,13 @@
     },
     "autoload": {
         "psr-4": {
-            "RoundlyConsulting\\PackageTemplate\\": "src"
+            "RoundlyConsulting\\Lifecycle\\": "src",
+            "RoundlyConsulting\\Lifecycle\\Database\\Factories\\": "database/factories"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "RoundlyConsulting\\PackageTemplate\\Tests\\": "tests"
+            "RoundlyConsulting\\Lifecycle\\Tests\\": "tests"
         }
     },
     "scripts": {
@@ -83,10 +113,10 @@
     "extra": {
         "laravel": {
             "providers": [
-                "RoundlyConsulting\\PackageTemplate\\PackageTemplateServiceProvider"
+                "RoundlyConsulting\\Lifecycle\\LifecycleServiceProvider"
             ],
             "aliases": {
-                "PackageTemplate": "RoundlyConsulting\\PackageTemplate\\Facades\\PackageTemplate"
+                "Lifecycles": "RoundlyConsulting\\Lifecycle\\Facades\\Lifecycles"
             }
         }
     },
