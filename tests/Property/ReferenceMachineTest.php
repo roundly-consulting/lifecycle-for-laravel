@@ -138,7 +138,7 @@ it('agrees with the reference machine on 200 random walks', function (): void {
     expect($seen['applied'])->toBeGreaterThan(500)
         ->and($seen['rolled back'])->toBeGreaterThan(100)
         ->and($seen['expired'])->toBeGreaterThan(20)
-        ->and(microtime(true) - $started)->toBeLessThan(60.0);
+        ->and(microtime(true) - $started)->toBeLessThan(30.0);
 })->group('property');
 
 function attemptRollback(Closure $call): bool
