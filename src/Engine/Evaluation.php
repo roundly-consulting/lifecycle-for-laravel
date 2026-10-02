@@ -38,9 +38,4 @@ final readonly class Evaluation
     {
         return $this->definition->key($this->context->from);
     }
-
-    public function isSelfTransition(): bool
-    {
-        return $this->fromKey() === $this->context->transition->to;
-    }
 }

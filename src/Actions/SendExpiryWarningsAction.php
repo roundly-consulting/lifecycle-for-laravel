@@ -112,20 +112,19 @@ final readonly class SendExpiryWarningsAction
                     'next_warn_at' => $step->next === null ? null : Clock::format($step->next),
                 ]);
 
-            if ($affected !== 1) {
-                return 0;
+            // A concurrent warner already advanced the row: it fired, this one must not.
+            if ($affected === 1) {
+                $this->events->dispatch(new LifecycleExpiring(
+                    $subject,
+                    $schedule->lifecycle,
+                    $definition->value($schedule->for_state),
+                    $expiresAt,
+                    $lead,
+                    $schedule->id,
+                ));
             }
 
-            $this->events->dispatch(new LifecycleExpiring(
-                $subject,
-                $schedule->lifecycle,
-                $definition->value($schedule->for_state),
-                $expiresAt,
-                $lead,
-                $schedule->id,
-            ));
-
-            return 1;
+            return $affected === 1 ? 1 : 0;
         });
     }
 }

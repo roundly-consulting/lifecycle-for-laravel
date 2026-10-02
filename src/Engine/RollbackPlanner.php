@@ -122,28 +122,26 @@ final readonly class RollbackPlanner
                 $denials[] = Denial::of(DenialCode::RollbackWindowPassed, $rowParams, source: 'rollback');
             }
 
-            if (! $request->system) {
-                $evaluation = new Evaluation(
-                    definition: $definition,
-                    context: new TransitionContext(
-                        subject: $subject,
-                        lifecycle: $lifecycle,
-                        transition: $transition,
-                        from: $definition->codec->tryDecode($row->to_state) ?? $definition->value($current),
-                        to: $definition->codec->tryDecode((string) $row->from_state) ?? $definition->value($current),
-                        actor: $actor,
-                        system: false,
-                        reason: $request->reason,
-                        payload: [],
-                        now: $now,
-                        version: $record === null ? 0 : $record->version,
-                    ),
-                    mode: $lock ? Mode::Apply : Mode::Check,
-                    record: $record,
-                );
+            $evaluation = new Evaluation(
+                definition: $definition,
+                context: new TransitionContext(
+                    subject: $subject,
+                    lifecycle: $lifecycle,
+                    transition: $transition,
+                    from: $definition->codec->tryDecode($row->to_state) ?? $definition->value($current),
+                    to: $definition->codec->tryDecode((string) $row->from_state) ?? $definition->value($current),
+                    actor: $actor,
+                    system: $request->system,
+                    reason: $request->reason,
+                    payload: [],
+                    now: $now,
+                    version: $record === null ? 0 : $record->version,
+                ),
+                mode: $lock ? Mode::Apply : Mode::Check,
+                record: $record,
+            );
 
-                array_push($denials, ...$this->pipeline->rollbackActor($evaluation));
-            }
+            array_push($denials, ...$this->pipeline->rollbackActor($evaluation));
 
             if (! $request->force && $this->conflicts($subject, $row, $simulated)) {
                 $denials[] = Denial::of(DenialCode::RollbackConflict, $rowParams, source: 'rollback');

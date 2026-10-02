@@ -99,11 +99,8 @@ final readonly class QuotaGate
                 $locksCount = self::countTakesLocks(DatabaseDriver::tryFrom($connection->getDriverName()), $connection->transactionLevel());
             }
 
-            $query = $this->partition($subject, $lifecycle, $definition->encode($target->key), $values);
-
-            if ($locksCount) {
-                $query->lockForUpdate();
-            }
+            $query = $this->partition($subject, $lifecycle, $definition->encode($target->key), $values)
+                ->when($locksCount, static fn (Builder $partition) => $partition->lockForUpdate());
 
             // Keys, not COUNT(*): an aggregate under FOR UPDATE is refused by pgsql, and the
             // limit keeps the locked set at most `max` rows.

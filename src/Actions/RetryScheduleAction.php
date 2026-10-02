@@ -30,12 +30,7 @@ final readonly class RetryScheduleAction
     public function execute(int $scheduleId): bool
     {
         $schedule = ScheduleModel::query()->find($scheduleId);
-
-        if ($schedule === null || $schedule->status !== ScheduleStatus::Failed) {
-            return false;
-        }
-
-        $subject = SubjectResolver::find($schedule->subject_type, $schedule->subject_id);
+        $subject = $schedule === null ? null : SubjectResolver::find($schedule->subject_type, $schedule->subject_id);
 
         if ($subject === null) {
             return false;

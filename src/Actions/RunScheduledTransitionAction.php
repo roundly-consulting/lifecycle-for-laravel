@@ -85,7 +85,7 @@ final readonly class RunScheduledTransitionAction
                 return ScheduleRun::Skipped;
             }
 
-            return Transactions::run($subject, fn (): ScheduleRun => $this->run($subject, $scheduleId, $now));
+            return Transactions::run($subject, fn (): ScheduleRun => $this->run($subject, $scheduleId, $schedule->lifecycle, $now));
         } catch (Throwable $exception) {
             $this->exceptions->report($exception);
 
@@ -93,17 +93,11 @@ final readonly class RunScheduledTransitionAction
         }
     }
 
-    private function run(Model $subject, int $scheduleId, CarbonImmutable $now): ScheduleRun
+    private function run(Model $subject, int $scheduleId, string $lifecycle, CarbonImmutable $now): ScheduleRun
     {
-        $this->locker->lock($subject);
-
         // Lock order: the subject, its record (adopting drift, which may cancel this very
         // schedule), then the schedule row.
-        $lifecycle = ScheduleModel::queryFor($subject)->whereKey($scheduleId)->value('lifecycle');
-
-        if (! is_string($lifecycle)) {
-            return ScheduleRun::Skipped;
-        }
+        $this->locker->lock($subject);
 
         $definition = $this->registry->of($subject, $lifecycle);
         $record = $this->records->lock($subject, $lifecycle, $definition)->record;
