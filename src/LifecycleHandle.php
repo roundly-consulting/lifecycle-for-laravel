@@ -314,6 +314,13 @@ final readonly class LifecycleHandle
         return $this->record()?->isFrozen(Clock::now()) ?? false;
     }
 
+    public function frozenReason(): ?string
+    {
+        $record = $this->record();
+
+        return $record !== null && $record->isFrozen(Clock::now()) ? $record->frozen_reason : null;
+    }
+
     public function frozenUntil(): ?CarbonImmutable
     {
         $record = $this->record();

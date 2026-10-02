@@ -6,8 +6,12 @@ namespace RoundlyConsulting\Lifecycle;
 
 use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
 use RoundlyConsulting\Lifecycle\Actions\PruneAction;
+use RoundlyConsulting\Lifecycle\Commands\AdoptCommand;
+use RoundlyConsulting\Lifecycle\Commands\GraphCommand;
 use RoundlyConsulting\Lifecycle\Commands\PruneCommand;
+use RoundlyConsulting\Lifecycle\Commands\ShowCommand;
 use RoundlyConsulting\Lifecycle\Commands\SweepCommand;
+use RoundlyConsulting\Lifecycle\Commands\ValidateCommand;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Graph\GraphExporter;
@@ -35,7 +39,14 @@ final class LifecycleServiceProvider extends PackageServiceProvider
             // Publish-only, timestamped on publish, in directory order.
             ->hasMigrations()
             ->hasTranslations()
-            ->hasCommands([SweepCommand::class, PruneCommand::class])
+            ->hasCommands([
+                SweepCommand::class,
+                GraphCommand::class,
+                ValidateCommand::class,
+                ShowCommand::class,
+                AdoptCommand::class,
+                PruneCommand::class,
+            ])
             // Presence and flags only — never a payload or a secret.
             ->contributesToAbout(static fn (): array => [
                 'Graph format' => GraphExporter::defaultFormat()->value,

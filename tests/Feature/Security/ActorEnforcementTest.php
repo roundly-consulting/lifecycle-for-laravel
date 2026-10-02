@@ -2,11 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Http\Resources\LifecycleResource;
+use RoundlyConsulting\Lifecycle\Rules\ValidTransition;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\User;
 
@@ -41,4 +45,15 @@ it('lets an authorized actor through', function (): void {
     $document = Document::factory()->create();
 
     expect(Lifecycles::for($document)->by(User::factory()->create(['admin' => true]))->apply('go')->to)->toBe('b');
+});
+
+it('enforces the ability in the validation rule and the API resource', function (): void {
+    $document = Document::factory()->create();
+    $member = User::factory()->create();
+
+    $errors = Validator::make(['t' => 'go'], ['t' => [ValidTransition::for($document)->by($member)]])->errors()->all();
+    $resource = LifecycleResource::make(Lifecycles::for($document)->by($member))->toArray(new Request);
+
+    expect($errors)->toBe(['You are not authorized to perform "Go".'])
+        ->and($resource['allowed_transitions'][0]['allowed'])->toBeFalse();
 });

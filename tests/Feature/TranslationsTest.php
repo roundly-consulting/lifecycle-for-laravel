@@ -6,7 +6,7 @@ use Illuminate\Support\Arr;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Enums\IssueCode;
 
-dataset('translation files', ['denials', 'issues', 'labels']);
+dataset('translation files', ['denials', 'issues', 'labels', 'validation']);
 
 it('ships the same keys in every language', function (string $file): void {
     $en = Arr::dot(require __DIR__.'/../../resources/lang/en/'.$file.'.php');

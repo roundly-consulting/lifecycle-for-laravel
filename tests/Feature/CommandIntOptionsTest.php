@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Artisan;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 
 /**
  * `Artisan::call()` passes real ints, the console strings: both must be honoured.
@@ -33,3 +35,12 @@ it('sweeps with warnings and the queue flag', function (): void {
     expect(Artisan::call('lifecycle:sweep', ['--queue' => true]))->toBe(0)
         ->and(Artisan::output())->toContain('warned');
 });
+
+it('honours integer adopt and show options given as ints or strings', function (int|string $value): void {
+    $listing = Listing::factory()->create();
+    LifecycleState::query()->delete();
+
+    expect(Artisan::call('lifecycle:adopt', ['model' => $listing::class, '--chunk' => $value]))->toBe(0)
+        ->and(Artisan::output())->toContain('Adopted 1 subject(s).')
+        ->and(Artisan::call('lifecycle:show', ['subject' => $listing::class, 'id' => $listing->id, '--history' => $value]))->toBe(0);
+})->with(['int' => 1, 'string' => '1']);
