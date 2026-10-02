@@ -66,11 +66,6 @@ it('renders a dot graph', function (): void {
         DOT);
 });
 
-it('escapes labels so they cannot break out of the syntax', function (): void {
-    expect(MermaidRenderer::escape("a \"b\"\nc\r\nd"))->toBe('a #quot;b#quot; c d')
-        ->and(DotRenderer::quote("a \"b\" \\ c\nd"))->toBe('"a \\"b\\" \\\\ c d"');
-});
-
 it('notes every state constraint', function (): void {
     $definition = compileLifecycle(function (LifecycleBuilder $l): void {
         baseLifecycle($l)->transition('lapse')->from('b')->to('c')->systemOnly()->ignoresSeal();

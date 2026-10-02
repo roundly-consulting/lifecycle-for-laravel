@@ -43,3 +43,17 @@ it('runs the schedule when the job is handled', function (): void {
 
     expect($document->fresh()?->status)->toBe('b');
 });
+
+it('skips a job whose schedule is no longer pending or not yet due', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn (TransitionBuilder $go) => $go->allowSystem()));
+    $document = Document::factory()->create();
+    $cancelled = Lifecycles::for($document)->asSystem()->schedule('go', CarbonImmutable::parse('2026-10-02 09:00:00', 'UTC'));
+    Lifecycles::for($document)->cancelScheduled('go');
+    $future = Lifecycles::for($document)->asSystem()->schedule('go', CarbonImmutable::parse('2026-10-09 09:00:00', 'UTC'));
+
+    app()->call([new RunScheduledTransitionJob($cancelled->id), 'handle']);
+    app()->call([new RunScheduledTransitionJob($future->id), 'handle']);
+    app()->call([new RunScheduledTransitionJob(999), 'handle']);
+
+    expect($document->fresh()?->status)->toBe('a');
+});

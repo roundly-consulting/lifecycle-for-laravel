@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
+use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
@@ -68,4 +69,34 @@ it('adopts a direct write made inside allowDirectWrites immediately', function (
     Lifecycles::allowDirectWrites(fn () => $listing->update(['status' => ListingStatus::Expired]));
 
     expect(LifecycleState::query()->sole()->state)->toBe('expired');
+});
+
+it('leaves the model untouched when adoption fails', function (): void {
+    $listing = Listing::factory()->create();
+    Listing::query()->whereKey($listing->id)->update(['status' => 'gone']);
+    $stale = Listing::query()->findOrFail($listing->id);
+
+    expect(fn () => Lifecycles::for($stale)->adopt())->toThrow(UnknownStateException::class)
+        ->and($stale->getAttributes()['status'])->toBe('gone')
+        ->and($stale->isDirty())->toBeFalse();
+});
+
+it('reads a NULL stored state as not initialised without writing', function (Closure $read): void {
+    Ticket::query()->insert(['status' => null]);
+    $ticket = Ticket::query()->sole();
+
+    expect(fn () => $read($ticket))->toThrow(UnknownStateException::class, 'has no state yet')
+        ->and(LifecycleState::query()->count())->toBe(0);
+})->with([
+    'check' => [fn (Ticket $ticket) => Lifecycles::for($ticket)->check('open')],
+    'available' => [fn (Ticket $ticket) => Lifecycles::for($ticket)->allowedTransitions()],
+]);
+
+it('evaluates a subject that has no state record yet', function (): void {
+    $listing = Listing::factory()->create();
+    LifecycleState::query()->delete();
+
+    expect(Lifecycles::for($listing)->check('publish')->allowed)->toBeTrue()
+        ->and(Lifecycles::for($listing)->expectingVersion(0)->check('publish')->allowed)->toBeTrue()
+        ->and(Lifecycles::for($listing)->expectingVersion(3)->check('publish')->codes())->toBe(['stale_version']);
 });

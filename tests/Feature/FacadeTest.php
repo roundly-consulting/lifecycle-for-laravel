@@ -19,6 +19,7 @@ use RoundlyConsulting\Lifecycle\ModelLifecycle;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Testing\RecordedCall;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Enums\ListingStatus;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
 
@@ -223,4 +224,16 @@ it('lists available transitions under the fake', function (): void {
     expect(array_map(fn ($t) => $t->name, Lifecycles::for($listing)->allowedTransitions()))->toBe(['archive'])
         ->and(array_map(fn ($t) => [$t->name, $t->allowed], Lifecycles::for($listing)->allowedTransitions(includeDenied: true)))
         ->toBe([['publish', false], ['archive', true]]);
+});
+
+it('ignores model deletes and restores under the fake', function (): void {
+    $document = Document::factory()->create();
+    $fake = Lifecycles::fake();
+
+    $document->delete();
+    $document->restore();
+    $document->forceDelete();
+
+    expect($fake->recorded())->toBe([])
+        ->and(LifecycleState::query()->count())->toBe(1);
 });

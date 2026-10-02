@@ -45,7 +45,7 @@ jobs:
       - name: Execute tests
         # Engine-specific and fork cases run on the real-engine legs below; the property test
         # runs in its own step, without the coverage driver slowing its 6 000 steps down.
-        run: vendor/bin/pest --coverage --min=90 --exclude-group=pgsql --exclude-group=mysql --exclude-group=real-engine --exclude-group=property
+        run: vendor/bin/pest --coverage --min=95 --exclude-group=pgsql --exclude-group=mysql --exclude-group=real-engine --exclude-group=property
 
       - name: Execute the property test
         env:

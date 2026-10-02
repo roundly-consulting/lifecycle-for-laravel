@@ -13,6 +13,7 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Events\ScheduledTransitionFailed;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 
 beforeEach(fn () => Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 10:00:00', 'UTC')));
@@ -150,4 +151,27 @@ it('respects the run limit and keeps the keyset order', function (): void {
     expect(Lifecycles::sweep(limit: 3)->executed)->toBe(3)
         ->and(Lifecycles::sweep()->executed)->toBe(2)
         ->and(Lifecycles::sweep()->total())->toBe(0);
+});
+
+it('cancels a schedule whose record left its state behind the engine', function (): void {
+    [$document, $schedule] = dueDocument(fn (TransitionBuilder $go) => $go);
+    Document::query()->whereKey($document->id)->update(['status' => 'b']);
+    LifecycleState::query()->update(['state' => 'b']);
+
+    expect(Lifecycles::sweep()->cancelled)->toBe(1)
+        ->and($schedule->fresh()?->outcome)->toBe(ScheduleOutcome::StateLeft);
+});
+
+it('cancels a schedule whose transition no longer leaves the state', function (): void {
+    [$document, $schedule] = dueDocument(fn (TransitionBuilder $go) => $go);
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        $l->states(['a', 'b', 'c'])->initial('a')->terminal('c');
+        $l->transition('start')->from('a')->to('b');
+        $l->transition('go')->from('b')->to('c')->allowSystem();
+    });
+    Lifecycles::definitions()->flush();
+
+    expect(Lifecycles::sweep()->cancelled)->toBe(1)
+        ->and($schedule->fresh()?->outcome)->toBe(ScheduleOutcome::StateLeft)
+        ->and($document->fresh()?->status)->toBe('a');
 });

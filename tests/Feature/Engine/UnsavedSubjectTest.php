@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
@@ -15,6 +16,7 @@ it('refuses an unsaved subject everywhere', function (Closure $call): void {
     'check' => [fn (Listing $l) => Lifecycles::check(new TransitionRequest($l, 'status', 'publish'))],
     'available' => [fn (Listing $l) => Lifecycles::available(new AvailableTransitionsQuery($l, 'status'))],
     'adopt' => [fn (Listing $l) => Lifecycles::adopt($l)],
+    'rollback' => [fn (Listing $l) => Lifecycles::rollback(new RollbackRequest($l, 'status'))],
     'fake apply' => [function (Listing $l): void {
         Lifecycles::fake();
         Lifecycles::apply(new TransitionRequest($l, 'status', 'publish'));

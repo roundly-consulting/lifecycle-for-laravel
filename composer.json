@@ -101,7 +101,7 @@
         "format": "vendor/bin/pint",
         "analyse": "vendor/bin/phpstan analyse --no-progress",
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage --min=90"
+        "test-coverage": "vendor/bin/pest --coverage --min=95"
     },
     "config": {
         "sort-packages": true,
