@@ -13,7 +13,7 @@ use RoundlyConsulting\Lifecycle\Tests\Support\SwappedModelsTestCase;
 use RoundlyConsulting\Lifecycle\Tests\Support\UuidKeysTestCase;
 use RoundlyConsulting\Lifecycle\Tests\TestCase;
 
-uses(TestCase::class)->in('Unit', 'Feature', 'RealEngine', 'ArchTest.php', 'ConfigContractTest.php', 'MigrationsTest.php');
+uses(TestCase::class)->in('Unit', 'Feature', 'RealEngine', 'Property', 'ArchTest.php', 'ConfigContractTest.php', 'MigrationsTest.php');
 
 // Model-swap and uuid-key proofs need their config applied BEFORE boot: own base cases.
 uses(SwappedModelsTestCase::class)->in('ModelSwap');

@@ -18,6 +18,10 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\PruneOptions;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\PruneResult;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
@@ -35,6 +39,7 @@ use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
+use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
@@ -64,6 +69,9 @@ final class LifecycleFake extends LifecycleManager
     private array $once = [];
 
     private int $sequence = 0;
+
+    /** @var array<string, list<TransitionResult>> applied transitions per subject lifecycle, for the fake's rollbacks */
+    private array $stacks = [];
 
     public function __construct(Container $container)
     {
@@ -139,6 +147,7 @@ final class LifecycleFake extends LifecycleManager
         );
 
         $this->calls[] = new RecordedCall('apply', $request, $result);
+        $this->stacks[self::stackKey($subject, $request->lifecycle)][] = $result;
 
         return $result;
     }
@@ -206,6 +215,74 @@ final class LifecycleFake extends LifecycleManager
         $this->calls[] = new RecordedCall('unfreeze', $request, true);
 
         return true;
+    }
+
+    /**
+     * Pops the fake's own stack of applied transitions; refused like the real one when there
+     * is nothing to roll back or the point is not on it.
+     */
+    public function rollback(RollbackRequest $request): RollbackResult
+    {
+        $decision = $this->checkRollback($request);
+
+        if ($decision->denied()) {
+            $this->calls[] = new RecordedCall('rollback', $request, denied: $decision);
+
+            throw RollbackDeniedException::because($decision);
+        }
+
+        $key = self::stackKey($request->subject, $request->lifecycle);
+        $definition = $this->definitions()->of($request->subject, $request->lifecycle);
+        $from = $definition->decode($this->current($request->subject, $request->lifecycle, $definition));
+        $reverted = [];
+
+        do {
+            $last = array_pop($this->stacks[$key]);
+            $reverted[] = $last->record;
+        } while ($request->toHistoryId !== null && $this->stacks[$key] !== [] && end($this->stacks[$key])->record->id !== $request->toHistoryId);
+
+        $to = $last->from ?? $from;
+        $attributes = $request->subject->getAttributes();
+        $attributes[$request->lifecycle] = $definition->encode($to);
+        $request->subject->setRawAttributes($attributes);
+        $request->subject->syncOriginalAttribute($request->lifecycle);
+
+        $result = new RollbackResult($request->subject, $request->lifecycle, $from, $to, $reverted, []);
+        $this->calls[] = new RecordedCall('rollback', $request, $result);
+
+        return $result;
+    }
+
+    public function checkRollback(RollbackRequest $request): Decision
+    {
+        $this->guardPersisted($request->subject);
+        $stack = $this->stacks[self::stackKey($request->subject, $request->lifecycle)] ?? [];
+        $params = ['transition' => '', 'state' => ''];
+
+        if ($stack === []) {
+            return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
+        }
+
+        if ($request->toHistoryId !== null) {
+            $ids = array_map(static fn (TransitionResult $result): int => $result->record->id, $stack);
+
+            if (! in_array($request->toHistoryId, $ids, true)) {
+                return Decision::deny(Denial::of(DenialCode::NotOnPath, $params, source: 'fake'));
+            }
+
+            if (end($stack)->record->id === $request->toHistoryId) {
+                return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
+            }
+        }
+
+        return Decision::allow();
+    }
+
+    public function prune(PruneOptions $options): PruneResult
+    {
+        $this->calls[] = new RecordedCall('prune', $options, new PruneResult);
+
+        return new PruneResult;
     }
 
     public function schedule(ScheduleRequest $request): ScheduledTransition
@@ -395,6 +472,41 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be frozen, but %d freeze(s) were recorded.', $count));
     }
 
+    /**
+     * @param  (Closure(RollbackResult): bool)|null  $callback
+     */
+    public function assertRolledBack(Model $subject, ?Closure $callback = null): void
+    {
+        $matching = array_filter($this->calls, static fn (RecordedCall $call): bool => $call->result instanceof RollbackResult
+            && $call->result->subject->is($subject)
+            && ($callback === null || $callback($call->result)));
+
+        PHPUnit::assertNotEmpty($matching, sprintf('Expected [%s] to be rolled back, but it was not.', $subject::class));
+    }
+
+    public function assertNothingRolledBack(): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->result instanceof RollbackResult));
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be rolled back, but %d rollback(s) ran.', $count));
+    }
+
+    public function assertPruned(): void
+    {
+        PHPUnit::assertNotEmpty(
+            array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'prune'),
+            'Expected lifecycle history to be pruned, but it was not.',
+        );
+    }
+
+    public function assertNotPruned(): void
+    {
+        PHPUnit::assertEmpty(
+            array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'prune'),
+            'Expected lifecycle history not to be pruned, but it was.',
+        );
+    }
+
     public function assertScheduled(Model $subject, string $transition, ?CarbonInterface $at = null): void
     {
         $matching = array_filter(
@@ -528,6 +640,11 @@ final class LifecycleFake extends LifecycleManager
         }
 
         return $denial === null ? $transition : Decision::deny($denial);
+    }
+
+    private static function stackKey(Model $subject, string $lifecycle): string
+    {
+        return json_encode([$subject->getMorphClass(), $subject->getKey(), $lifecycle], JSON_THROW_ON_ERROR);
     }
 
     private function guardPersisted(Model $subject): void

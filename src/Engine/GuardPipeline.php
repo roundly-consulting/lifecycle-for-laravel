@@ -150,6 +150,51 @@ final readonly class GuardPipeline
     }
 
     /**
+     * Who may roll a row back (user context): the reverted transition's `rollbackRequires()` /
+     * `rollbackGuard()` when declared, otherwise its own actor rules (rows 8–10) for the
+     * rolling-back actor — a transition that needs an ability cannot be undone by someone who
+     * could not have applied it.
+     *
+     * @return list<Denial>
+     */
+    public function rollbackActor(Evaluation $evaluation): array
+    {
+        $context = $evaluation->context;
+        $rule = $context->transition->reversibility;
+
+        if ($context->system) {
+            return [];
+        }
+
+        if (! $rule->hasActorRules()) {
+            return $this->actor($evaluation);
+        }
+
+        $params = $this->params($evaluation);
+        $denials = [];
+
+        if ($rule->ability !== null) {
+            if ($context->actor === null) {
+                return [Denial::of(DenialCode::ActorRequired, $params, source: 'actor')];
+            }
+
+            if (! $this->container->make(Gate::class)->forUser($context->actor)->allows($rule->ability, [$context->subject, $context])) {
+                $denials[] = Denial::of(DenialCode::Unauthorized, $params, source: 'actor');
+            }
+        }
+
+        foreach ($rule->guards as $guard) {
+            $denial = $this->resolveGuard($guard)->check($context);
+
+            if ($denial !== null) {
+                $denials[] = $denial;
+            }
+        }
+
+        return $denials;
+    }
+
+    /**
      * Row 19 in Apply mode: count one hit per rule; a rule over its limit refuses. Hits are
      * never refunded, even when the transaction later fails.
      */
@@ -496,7 +541,7 @@ final readonly class GuardPipeline
     /**
      * @return array<string, scalar>
      */
-    private function params(Evaluation $evaluation): array
+    public function params(Evaluation $evaluation): array
     {
         return [
             'transition' => $evaluation->context->transition->label(),

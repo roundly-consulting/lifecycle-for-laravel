@@ -204,7 +204,7 @@ final readonly class TransitionExecutor
             }
         });
 
-        $after = Snapshotter::capture($subject, $captured);
+        $after = Snapshotter::stored($subject, $captured);
         $stored = Config::boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [];
         $stored = [...$stored, ...$extraContext];
         $version = $record->version + 1;

@@ -10,15 +10,19 @@ use Carbon\CarbonInterface;
 use Carbon\CarbonInterval;
 use DateInterval;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\CancelScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
@@ -30,9 +34,11 @@ use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
+use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
+use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 
 /**
  * One lifecycle of one subject: `Lifecycles::for($order)` or `$order->lifecycle()`.
@@ -241,6 +247,55 @@ final readonly class LifecycleHandle
     }
 
     /**
+     * Undo the last transition (all or nothing). `force` skips the snapshot-conflict check.
+     */
+    public function rollback(bool $force = false): RollbackResult
+    {
+        return $this->manager->rollback($this->rollbackRequest(null, $force));
+    }
+
+    /**
+     * Revert every transition after a history row (it must be on this lifecycle's path).
+     */
+    public function rollbackTo(int|TransitionRecord $point, bool $force = false): RollbackResult
+    {
+        return $this->manager->rollback($this->rollbackRequest($point instanceof TransitionRecord ? $point->id : $point, $force));
+    }
+
+    public function canRollback(): Decision
+    {
+        return $this->manager->checkRollback($this->rollbackRequest(null, false));
+    }
+
+    /**
+     * The newest history rows first.
+     *
+     * @return Collection<int, TransitionRecord>
+     */
+    public function history(int $limit = 50): Collection
+    {
+        $definition = $this->definition();
+
+        if (! $this->subject->exists) {
+            return new Collection;
+        }
+
+        return TransitionModel::of($this->subject, $this->lifecycle)
+            ->with('revertedBy')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(static fn (LifecycleTransition $row): TransitionRecord => $row->toRecord($definition))
+            ->values()
+            ->toBase();
+    }
+
+    public function lastTransition(): ?TransitionRecord
+    {
+        return $this->history(1)->first();
+    }
+
+    /**
      * Freeze until an instant, or until unfrozen; uses the handle's reason and actor (the
      * actor is recorded for audit only — who may freeze is the host's policy).
      */
@@ -382,6 +437,11 @@ final readonly class LifecycleHandle
             expectedVersion: $this->expectedVersion,
             idempotencyKey: $this->idempotencyKey,
         );
+    }
+
+    private function rollbackRequest(?int $point, bool $force): RollbackRequest
+    {
+        return new RollbackRequest($this->subject, $this->lifecycle, $point, $this->actor, $this->system, $this->reason, $force);
     }
 
     private function changeExpiry(ExpiryChange $change, ?CarbonInterface $at = null, ?CarbonInterval $interval = null): CarbonImmutable

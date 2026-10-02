@@ -85,6 +85,53 @@ final readonly class ScheduleBook
     }
 
     /**
+     * Rollback of row `$historyId`: cancel the open rows it created (`reverted`).
+     */
+    public function revert(Model $subject, string $lifecycle, int $historyId, int $rollbackId, CarbonImmutable $now): void
+    {
+        $rows = ScheduleModel::of($subject, $lifecycle)
+            ->where('created_by_transition_id', $historyId)
+            ->whereIn('status', [ScheduleStatus::Pending->value, ScheduleStatus::Paused->value])
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($rows as $row) {
+            $this->finish($row, ScheduleStatus::Cancelled, ScheduleOutcome::Reverted, $now, $rollbackId);
+        }
+    }
+
+    /**
+     * Rollback of row `$historyId`: re-open the rows it cancelled by leaving their state, with
+     * their original due and expiry instants — unless their slot has been taken since.
+     */
+    public function reopen(Model $subject, string $lifecycle, int $historyId): void
+    {
+        $rows = ScheduleModel::of($subject, $lifecycle)
+            ->where('cancelled_by_transition_id', $historyId)
+            ->where('outcome', ScheduleOutcome::StateLeft->value)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($rows as $row) {
+            $slot = $row->kind === ScheduleKind::Expiry ? self::EXPIRY_SLOT : $row->transition;
+
+            if ($this->open($subject, $lifecycle, $slot) !== null) {
+                continue;
+            }
+
+            $row->forceFill([
+                'status' => ScheduleStatus::Pending,
+                'pending_slot' => $slot,
+                'outcome' => null,
+                'finished_at' => null,
+                'cancelled_by_transition_id' => null,
+            ])->save();
+        }
+    }
+
+    /**
      * The open row of a slot, locked.
      */
     public function open(Model $subject, string $lifecycle, string $slot): ?LifecycleSchedule

@@ -101,7 +101,9 @@ return [
     | `store_payload` keeps the validated payload (minus `sensitive()` keys) in
     | the history row; `max_context_bytes` caps its JSON size (1024..1048576);
     | `reason_max_length` caps reasons (1..10000); `purge_on_force_delete`
-    | deletes a force-deleted subject's records, history and schedules.
+    | deletes a force-deleted subject's records, history and schedules;
+    | `prune_after_days` is the `lifecycle:prune` default for history rows
+    | (1..36500, null = never).
     |
     */
 
@@ -110,6 +112,24 @@ return [
         'max_context_bytes' => 16384,
         'reason_max_length' => 1000,
         'purge_on_force_delete' => env('LIFECYCLE_PURGE_ON_FORCE_DELETE', true),
+        'prune_after_days' => env('LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rollbacks
+    |--------------------------------------------------------------------------
+    |
+    | `default_window` is how long a transition stays reversible when it
+    | declares no window of its own (an interval such as "7 days"; null =
+    | unlimited). `max_steps` bounds how many rows one rollbackTo() reverts
+    | (1..1000).
+    |
+    */
+
+    'rollback' => [
+        'default_window' => env('LIFECYCLE_ROLLBACK_WINDOW'),
+        'max_steps' => 50,
     ],
 
     /*
@@ -122,6 +142,8 @@ return [
     | run. A scheduled transition refused only for retryable reasons is retried
     | after `retry_after` until `max_attempts` (1..100). With `queue.enabled`
     | the sweep dispatches one job per schedule instead of running it inline.
+    | `prune_after_days` is the `lifecycle:prune` default for finished schedule
+    | rows (null = never).
     |
     */
 
@@ -135,6 +157,7 @@ return [
             'connection' => env('LIFECYCLE_QUEUE_CONNECTION'),
             'name' => env('LIFECYCLE_QUEUE'),
         ],
+        'prune_after_days' => env('LIFECYCLE_SCHEDULE_PRUNE_AFTER_DAYS', 30),
     ],
 
     /*

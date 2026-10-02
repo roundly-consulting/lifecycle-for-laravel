@@ -20,6 +20,7 @@ it('renders its about section', function (): void {
         'Schedule model', 'LifecycleSchedule',
         'Schedule batch size', '500',
         'Queued sweeps', 'OFF',
+        'History pruning', 'OFF',
     ]);
 });
 
@@ -27,4 +28,10 @@ it('reports the configured graph format', function (): void {
     config()->set('lifecycle.graph.default_format', 'dot');
 
     expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Graph format', 'dot']);
+});
+
+it('reports the history retention', function (): void {
+    config()->set('lifecycle.history.prune_after_days', '90');
+
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['History pruning', '90 days']);
 });

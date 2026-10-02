@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle;
 
 use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
+use RoundlyConsulting\Lifecycle\Actions\PruneAction;
+use RoundlyConsulting\Lifecycle\Commands\PruneCommand;
 use RoundlyConsulting\Lifecycle\Commands\SweepCommand;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
@@ -33,7 +35,7 @@ final class LifecycleServiceProvider extends PackageServiceProvider
             // Publish-only, timestamped on publish, in directory order.
             ->hasMigrations()
             ->hasTranslations()
-            ->hasCommands([SweepCommand::class])
+            ->hasCommands([SweepCommand::class, PruneCommand::class])
             // Presence and flags only — never a payload or a secret.
             ->contributesToAbout(static fn (): array => [
                 'Graph format' => GraphExporter::defaultFormat()->value,
@@ -48,6 +50,7 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 'Schedule batch size' => (string) Config::using(InvalidLifecycleConfigurationException::class)
                     ->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500),
                 'Queued sweeps' => Config::boolean('lifecycle.schedules.queue.enabled') ? 'ON' : 'OFF',
+                'History pruning' => ($days = PruneAction::days('lifecycle.history.prune_after_days')) === null ? 'OFF' : $days.' days',
             ]);
     }
 

@@ -18,6 +18,18 @@ it('returns now in UTC, truncated to the second, honouring the test clock', func
     Carbon::setTestNow();
 });
 
+it('keeps a test instant inside a DST fall-back hour exact', function (): void {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-25 00:30:00', 'UTC'));
+
+    expect(Clock::now()->toIso8601String())->toBe('2026-10-25T00:30:00+00:00');
+
+    Carbon::setTestNow(fn () => CarbonImmutable::parse('2026-10-25 00:30:00', 'UTC'));
+
+    expect(Clock::now()->tzName)->toBe('UTC');
+
+    Carbon::setTestNow();
+});
+
 it('formats any instant as a UTC storage string', function (): void {
     $local = CarbonImmutable::parse('2026-07-01 12:00:00', 'America/New_York');
 

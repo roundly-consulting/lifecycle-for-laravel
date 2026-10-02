@@ -98,3 +98,14 @@ it('locks the subject first when a sweep runs a schedule', function (): void {
         ->and($locks[2])->toBe(['lifecycle_schedules', 1])
         ->and(subjectRowsOnly(array_slice($locks, 1)))->toBeTrue();
 })->group('sqlite');
+
+it('locks the subject before its rows when rolling back', function (): void {
+    $listing = Listing::factory()->create();
+    $listing->transition('publish');
+
+    $locks = recordLocks(fn () => Lifecycles::for($listing)->rollback());
+
+    expect($locks[0])->toBe(['listings', 1])
+        ->and($locks[1])->toBe(['lifecycle_states', 1])
+        ->and(subjectRowsOnly(array_slice($locks, 1)))->toBeTrue();
+})->group('sqlite');

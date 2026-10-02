@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
+use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\Constraints\QuotaRule;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
@@ -33,24 +34,43 @@ final readonly class QuotaGate
      */
     public function check(Evaluation $evaluation, bool $lock): array
     {
-        if ($evaluation->isSelfTransition()) {
+        $context = $evaluation->context;
+
+        return $this->entering(
+            $context->subject,
+            $context->lifecycle,
+            $evaluation->definition,
+            $evaluation->fromKey(),
+            $context->transition->to,
+            $context->transition->label(),
+            $lock,
+        );
+    }
+
+    /**
+     * The quotas of `$to` for a subject entering it from `$from` (nothing when they are equal).
+     *
+     * @return list<Denial>
+     */
+    public function entering(Model $subject, string $lifecycle, CompiledDefinition $definition, string $from, string $to, string $transitionLabel, bool $lock): array
+    {
+        if ($from === $to) {
             return [];
         }
 
-        $context = $evaluation->context;
-        $target = $evaluation->definition->state($context->transition->to);
+        $target = $definition->state($to);
         $quotas = $target->quotas;
         usort($quotas, static fn (QuotaRule $a, QuotaRule $b): int => strcmp($a->name, $b->name));
         $denials = [];
 
         foreach ($quotas as $quota) {
-            $max = $this->max($quota, $context->subject);
-            $params = ['max' => $max, 'current' => 0, 'state' => $target->label(), 'transition' => $context->transition->label()];
+            $max = $this->max($quota, $subject);
+            $params = ['max' => $max, 'current' => 0, 'state' => $target->label(), 'transition' => $transitionLabel];
 
             $values = [];
 
             foreach ($quota->scope as $column) {
-                $values[$column] = $context->subject->getRawOriginal($column);
+                $values[$column] = $subject->getRawOriginal($column);
             }
 
             $key = json_encode(array_values($values), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
@@ -65,13 +85,13 @@ final readonly class QuotaGate
                 continue;
             }
 
-            $connection = $context->subject->getConnection();
+            $connection = $subject->getConnection();
             $locksCount = false;
 
             if ($lock) {
-                LockedRow::mutex(QuotaLock::on($context->subject->getConnectionName()), [
-                    'subject_type' => $context->subject->getMorphClass(),
-                    'lifecycle' => $context->lifecycle,
+                LockedRow::mutex(QuotaLock::on($subject->getConnectionName()), [
+                    'subject_type' => $subject->getMorphClass(),
+                    'lifecycle' => $lifecycle,
                     'quota' => $quota->name,
                     'scope_key' => $key,
                 ]);
@@ -79,7 +99,7 @@ final readonly class QuotaGate
                 $locksCount = self::countTakesLocks(DatabaseDriver::tryFrom($connection->getDriverName()), $connection->transactionLevel());
             }
 
-            $query = $this->partition($context->subject, $context->lifecycle, $evaluation->definition->encode($target->key), $values);
+            $query = $this->partition($subject, $lifecycle, $definition->encode($target->key), $values);
 
             if ($locksCount) {
                 $query->lockForUpdate();
@@ -87,7 +107,7 @@ final readonly class QuotaGate
 
             // Keys, not COUNT(*): an aggregate under FOR UPDATE is refused by pgsql, and the
             // limit keeps the locked set at most `max` rows.
-            $current = count($query->limit($max)->pluck($context->subject->getKeyName())->all());
+            $current = count($query->limit($max)->pluck($subject->getKeyName())->all());
 
             if ($current >= $max) {
                 $denials[] = Denial::of(DenialCode::QuotaExceeded, [...$params, 'current' => min($current, $max)], source: 'quota');

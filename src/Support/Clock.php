@@ -20,7 +20,9 @@ final class Clock
 
     public static function now(): CarbonImmutable
     {
-        return CarbonImmutable::instance(Date::now())->utc()->startOfSecond();
+        // Asked for in UTC: Carbon's test clock re-reads a test instant as wall time in the
+        // requested zone, so in a local zone an instant inside a DST fall-back hour would shift.
+        return CarbonImmutable::instance(Date::now('UTC'))->utc()->startOfSecond();
     }
 
     /**

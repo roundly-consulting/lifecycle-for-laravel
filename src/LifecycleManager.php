@@ -15,11 +15,14 @@ use RoundlyConsulting\Lifecycle\Actions\AdoptModelLifecyclesAction;
 use RoundlyConsulting\Lifecycle\Actions\ApplyTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\CancelScheduledTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\ChangeExpiryAction;
+use RoundlyConsulting\Lifecycle\Actions\CheckRollbackAction;
 use RoundlyConsulting\Lifecycle\Actions\CheckTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\FreezeAction;
 use RoundlyConsulting\Lifecycle\Actions\InitializeLifecycleAction;
 use RoundlyConsulting\Lifecycle\Actions\ListAvailableTransitionsAction;
+use RoundlyConsulting\Lifecycle\Actions\PruneAction;
 use RoundlyConsulting\Lifecycle\Actions\RetryScheduleAction;
+use RoundlyConsulting\Lifecycle\Actions\RollbackAction;
 use RoundlyConsulting\Lifecycle\Actions\RunDueSchedulesAction;
 use RoundlyConsulting\Lifecycle\Actions\ScheduleTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\SendExpiryWarningsAction;
@@ -33,6 +36,10 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\CancelScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ExpiryChangeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\PruneOptions;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\PruneResult;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduledTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
@@ -119,6 +126,27 @@ class LifecycleManager
     public function available(AvailableTransitionsQuery $query): array
     {
         return $this->container->make(ListAvailableTransitionsAction::class)->execute($query);
+    }
+
+    /**
+     * Undo the last transition, or roll back to a history row — all or nothing.
+     */
+    public function rollback(RollbackRequest $request): RollbackResult
+    {
+        return $this->container->make(RollbackAction::class)->execute($request);
+    }
+
+    public function checkRollback(RollbackRequest $request): Decision
+    {
+        return $this->container->make(CheckRollbackAction::class)->execute($request);
+    }
+
+    /**
+     * Delete old history and finished schedules. Authorization is the host's.
+     */
+    public function prune(PruneOptions $options): PruneResult
+    {
+        return $this->container->make(PruneAction::class)->execute($options);
     }
 
     /**

@@ -31,6 +31,30 @@ final class Snapshotter
         return $values;
     }
 
+    /**
+     * The values as the database now stores them — read back, not taken from the model, whose
+     * original after a save holds the cast-set PHP values (`false`, `'12.50'`) rather than what
+     * the driver returns (`0`, `'12.5'`).
+     *
+     * @param  list<string>  $attributes
+     * @return array<string, mixed>
+     */
+    public static function stored(Model $subject, array $attributes): array
+    {
+        if ($attributes === []) {
+            return [];
+        }
+
+        $row = $subject->newQueryWithoutScopes()->whereKey($subject->getKey())->toBase()->first($attributes);
+        $values = [];
+
+        foreach ($attributes as $attribute) {
+            $values[$attribute] = self::normalise(is_object($row) ? ($row->{$attribute} ?? null) : null);
+        }
+
+        return $values;
+    }
+
     public static function normalise(mixed $value): mixed
     {
         return json_decode((string) json_encode($value), true);

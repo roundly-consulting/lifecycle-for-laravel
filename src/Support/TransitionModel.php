@@ -51,6 +51,18 @@ final class TransitionModel
     }
 
     /**
+     * Rows on the default connection (pruning).
+     *
+     * @return Builder<LifecycleTransition>
+     */
+    public static function query(): Builder
+    {
+        $class = self::class();
+
+        return (new $class)->newQuery();
+    }
+
+    /**
      * Rows of one subject's lifecycle.
      *
      * @return Builder<LifecycleTransition>

@@ -82,4 +82,9 @@ final class InvalidLifecycleUsageException extends LifecycleException
             get_debug_type($value),
         ));
     }
+
+    public static function tooManyRollbackSteps(int $max): self
+    {
+        return new self(sprintf('A rollback may revert at most %d rows (rollback.max_steps).', $max));
+    }
 }
