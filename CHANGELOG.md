@@ -5,3 +5,47 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
+
+Initial public release.
+
+### Added
+
+- Status lifecycles for any Eloquent model through the `LifecycleSubject` contract and the
+  `HasLifecycle` trait, with several lifecycles per model (`status`, `payment_status`).
+- Definition classes with a fluent builder: backed-enum or string states, an initial state,
+  terminal states, named transitions with several sources, a `*` wildcard and `fromAnyExcept()`,
+  self-transitions, labels and metadata. Definitions are validated when compiled and by
+  `lifecycle:validate` (errors and warnings).
+- One guard pipeline for `can()`, `check()`, `allowedTransitions()` and `apply()`: Gate abilities,
+  actor rules, system-only transitions, required reasons, payload validation with sensitive keys,
+  custom guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a
+  structured, translated `Denial`.
+- Limits: maximum occurrences, cooldowns, minimum time in a state, per-actor or per-subject rate
+  limits and race-free quotas per scope column, with a fixed or per-subject maximum.
+- Transactions with a subject row lock and a compare-and-swap state write, optimistic versions
+  (`expectingVersion()`), idempotency keys, deadlock retries and after-commit events.
+- Transition handlers, `onEnter` / `onExit` hooks, timestamp stamps and attribute snapshots.
+- Expiry per state from an interval, a closure or a datetime column, with grace periods, warnings
+  that fire once per lead, `extend()`, `renew()`, `expireAt()` and `neverExpire()`, plus
+  `effectiveState()`.
+- Scheduled transitions and a `lifecycle:sweep` command that runs warnings, expiries and schedules
+  in batches, inline or as unique queued jobs, with retries, deferral while frozen and isolated
+  errors.
+- Rollbacks: undo the last transition or roll back to a history point, all or nothing, with
+  windows, irreversible transitions, compensating handlers, snapshot conflict detection and
+  restored stamps, counters, entry times and schedules.
+- An append-only history (actor, reason, context, snapshot) and `lifecycle:prune`.
+- Strict state writes, drift adoption and `lifecycle:adopt` for existing tables.
+- Query scopes: `whereState`, `whereNotState`, `whereExpired`, `whereNotExpired`,
+  `whereExpiringWithin`, `whereInGrace`, `whereFrozen`, `whereInStateFor` and `withLifecycle`.
+- `LifecycleResource` and `TransitionRecordResource`, the `ValidTransition` and `ValidState` rules
+  and the `AsLifecycleState` cast.
+- Mermaid and DOT graphs (`lifecycle:graph`) and `lifecycle:show`.
+- The `Lifecycles` facade over an injectable `LifecycleManager` and public action classes, with
+  `Lifecycles::fake()` and assertions for transitions, denials, rollbacks, freezes, schedules,
+  expiry changes, sweeps, adoption and pruning.
+- Events: `LifecycleTransitioning`, `LifecycleTransitioned`, `LifecycleTransitionDenied`,
+  `LifecycleExpiring`, `LifecycleExpired`, `LifecycleRolledBack`, `LifecycleFrozen`,
+  `LifecycleUnfrozen`, `LifecycleAdopted` and `ScheduledTransitionFailed`.
+- English and Slovak translations; bigint, UUID and ULID keys; swappable models; a `php artisan
+  about` section.
