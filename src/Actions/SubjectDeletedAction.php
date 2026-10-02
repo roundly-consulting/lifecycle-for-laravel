@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
+use RoundlyConsulting\Lifecycle\Support\Transactions;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
@@ -30,7 +31,7 @@ final readonly class SubjectDeletedAction
             return;
         }
 
-        $subject->getConnection()->transaction(function () use ($subject): void {
+        Transactions::run($subject, function () use ($subject): void {
             foreach (array_keys($this->registry->definitionsOf($subject)) as $lifecycle) {
                 // Query-builder deletes: history is append-only through Eloquent.
                 TransitionModel::of($subject, (string) $lifecycle)->toBase()->delete();

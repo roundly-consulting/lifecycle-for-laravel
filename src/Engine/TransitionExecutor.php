@@ -26,12 +26,12 @@ use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioned;
 use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioning;
 use RoundlyConsulting\Lifecycle\Exceptions\ConcurrentTransitionException;
 use RoundlyConsulting\Lifecycle\Exceptions\IdempotencyConflictException;
-use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\ActorResolver;
+use RoundlyConsulting\Lifecycle\Support\Transactions;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 use RoundlyConsulting\Lifecycle\Support\WriteGuard;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -87,7 +87,7 @@ final readonly class TransitionExecutor
         $actor = $this->actors->resolve($request->actor, $request->system);
 
         try {
-            $result = $subject->getConnection()->transaction(function () use ($request, $definition, $restore, $actor): TransitionResult {
+            $result = Transactions::run($subject, function () use ($request, $definition, $restore, $actor): TransitionResult {
                 // A retried attempt (deadlock) starts from the caller's model, not the last attempt's.
                 $restore->restore();
 
@@ -118,8 +118,14 @@ final readonly class TransitionExecutor
                     throw TransitionDeniedException::because($decision);
                 }
 
+                $limited = $this->pipeline->consumeRateLimits($evaluation);
+
+                if ($limited->denied()) {
+                    throw TransitionDeniedException::because($limited);
+                }
+
                 return $this->perform($evaluation, $record, TransitionKind::Transition, $request->idempotencyKey);
-            }, self::attempts());
+            });
         } catch (TransitionDeniedException $exception) {
             $restore->restore();
             $this->events->dispatch(new LifecycleTransitionDenied(
@@ -359,15 +365,6 @@ final readonly class TransitionExecutor
         }
 
         $resolved->handle($context);
-    }
-
-    /**
-     * @return int<1, max>
-     */
-    public static function attempts(): int
-    {
-        return max(1, Config::using(InvalidLifecycleConfigurationException::class)
-            ->intBetween('lifecycle.transaction_attempts', 1, 10, 3));
     }
 
     /**

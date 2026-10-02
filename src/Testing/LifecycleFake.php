@@ -13,10 +13,12 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
@@ -180,6 +182,20 @@ final class LifecycleFake extends LifecycleManager
         return $available;
     }
 
+    public function freeze(FreezeRequest $request): bool
+    {
+        $this->calls[] = new RecordedCall('freeze', $request, true);
+
+        return true;
+    }
+
+    public function unfreeze(UnfreezeRequest $request): bool
+    {
+        $this->calls[] = new RecordedCall('unfreeze', $request, true);
+
+        return true;
+    }
+
     public function adopt(Model $subject, ?string $lifecycle = null): bool
     {
         $this->calls[] = new RecordedCall('adopt', $subject, false);
@@ -274,6 +290,29 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertNotEmpty($matching, sprintf('Expected a transition of [%s] to be denied, but none was.', $subject::class));
     }
 
+    public function assertFrozen(Model $subject, ?string $lifecycle = null): void
+    {
+        PHPUnit::assertNotEmpty(
+            $this->requests('freeze', $subject, $lifecycle),
+            sprintf('Expected [%s] to be frozen, but it was not.', $subject::class),
+        );
+    }
+
+    public function assertUnfrozen(Model $subject, ?string $lifecycle = null): void
+    {
+        PHPUnit::assertNotEmpty(
+            $this->requests('unfreeze', $subject, $lifecycle),
+            sprintf('Expected [%s] to be unfrozen, but it was not.', $subject::class),
+        );
+    }
+
+    public function assertNothingFrozen(): void
+    {
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'freeze'));
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be frozen, but %d freeze(s) were recorded.', $count));
+    }
+
     public function assertAdopted(?Model $subject = null): void
     {
         $matching = array_filter($this->calls, static function (RecordedCall $call) use ($subject): bool {
@@ -282,6 +321,28 @@ final class LifecycleFake extends LifecycleManager
         });
 
         PHPUnit::assertNotEmpty($matching, 'Expected a lifecycle adoption, but none was recorded.');
+    }
+
+    /**
+     * Recorded requests of one method for a subject (and lifecycle).
+     *
+     * @return list<object>
+     */
+    private function requests(string $method, Model $subject, ?string $lifecycle): array
+    {
+        $requests = [];
+
+        foreach ($this->calls as $call) {
+            $request = $call->request;
+
+            if ($call->method === $method && property_exists($request, 'subject') && $request->subject instanceof Model
+                && $request->subject->is($subject)
+                && ($lifecycle === null || (property_exists($request, 'lifecycle') && $request->lifecycle === $lifecycle))) {
+                $requests[] = $request;
+            }
+        }
+
+        return $requests;
     }
 
     /**

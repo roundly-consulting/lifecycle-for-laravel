@@ -16,6 +16,8 @@ use RoundlyConsulting\Lifecycle\Testing\LifecycleFake;
  * @method static \RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt attempt(\RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest $request)
  * @method static \RoundlyConsulting\Lifecycle\DataTransferObjects\Decision check(\RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest $request)
  * @method static array<int, \RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition> available(\RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery $query)
+ * @method static bool freeze(\RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest $request)
+ * @method static bool unfreeze(\RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest $request)
  * @method static bool adopt(\Illuminate\Database\Eloquent\Model $subject, string|null $lifecycle = null)
  * @method static int adoptAll(string $class, string|null $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true)
  * @method static mixed allowDirectWrites(\Closure $callback)
@@ -27,6 +29,9 @@ use RoundlyConsulting\Lifecycle\Testing\LifecycleFake;
  * @method static void assertNotTransitioned(\Illuminate\Database\Eloquent\Model $subject, string|null $transition = null)
  * @method static void assertNothingTransitioned()
  * @method static void assertTransitionDenied(\Illuminate\Database\Eloquent\Model $subject, string|null $transition = null, \RoundlyConsulting\Lifecycle\Enums\DenialCode|string|null $code = null)
+ * @method static void assertFrozen(\Illuminate\Database\Eloquent\Model $subject, string|null $lifecycle = null)
+ * @method static void assertUnfrozen(\Illuminate\Database\Eloquent\Model $subject, string|null $lifecycle = null)
+ * @method static void assertNothingFrozen()
  * @method static void assertAdopted(\Illuminate\Database\Eloquent\Model|null $subject = null)
  *
  * @see LifecycleManager

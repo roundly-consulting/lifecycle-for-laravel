@@ -69,4 +69,9 @@ final class InvalidLifecycleUsageException extends LifecycleException
             get_debug_type($value),
         ));
     }
+
+    public static function invalidQuota(string $quota, int $max): self
+    {
+        return new self(sprintf('The quota [%s] resolved to a negative maximum (%d).', $quota, $max));
+    }
 }

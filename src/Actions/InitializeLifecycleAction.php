@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\StateRecords;
+use RoundlyConsulting\Lifecycle\Support\Transactions;
 
 /**
  * Runs from the `created` model event: a state record, an `initial` history row and the
@@ -24,7 +25,7 @@ final readonly class InitializeLifecycleAction
 
     public function execute(Model $subject): void
     {
-        $subject->getConnection()->transaction(function () use ($subject): void {
+        Transactions::run($subject, function () use ($subject): void {
             foreach (array_keys($this->registry->definitionsOf($subject)) as $lifecycle) {
                 $this->records->initialize($subject, (string) $lifecycle, $this->registry->of($subject, (string) $lifecycle));
             }

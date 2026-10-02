@@ -30,3 +30,30 @@ it('allows notBefore exactly at the instant and notAfter exactly at the deadline
     'at notAfter' => ['2026-10-02 12:00:00', true],
     'a second late' => ['2026-10-02 12:00:01', false],
 ]);
+
+it('ends a minimum dwell and a cooldown exactly at the limit', function (): void {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 10:00:00', 'UTC'));
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        baseLifecycle($l);
+        $l->transition('back')->from('b')->to('a');
+        $l->transition('undo')->from('b')->to('a')->cooldown('30 minutes')->ignoresMinDwell();
+        $l->state('b')->minDwell('1 hour');
+    });
+    $document = Document::factory()->create();
+    $document->transition('go');
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 10:59:59', 'UTC'));
+    expect(Lifecycles::for($document)->check('back')->codes())->toBe(['min_dwell_not_reached']);
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 11:00:00', 'UTC'));
+    expect(Lifecycles::for($document)->can('back'))->toBeTrue();
+
+    $document->transition('undo');
+    $document->transition('go');
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 11:29:59', 'UTC'));
+    expect(Lifecycles::for($document)->check('undo')->codes())->toBe(['cooldown_active']);
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 11:30:00', 'UTC'));
+    expect(Lifecycles::for($document)->can('undo'))->toBeTrue();
+});

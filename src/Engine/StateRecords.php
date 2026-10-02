@@ -57,7 +57,8 @@ final readonly class StateRecords
             ['state' => $stored, 'entered_at' => $now, 'version' => 0],
         );
 
-        if ($record->wasRecentlyCreated) {
+        // A fresh record has version 0: every write path moves it to 1 or more in the same transaction.
+        if ($record->version === 0) {
             $this->adopt($subject, $lifecycle, $definition, $record, null, $stored, $scheduleExpiry);
 
             return new LockedRecord($record, true);
@@ -92,7 +93,7 @@ final readonly class StateRecords
             ['state' => $state, 'entered_at' => Clock::now(), 'version' => 0],
         );
 
-        if (! $record->wasRecentlyCreated) {
+        if ($record->version !== 0) {
             return;
         }
 
@@ -136,13 +137,14 @@ final readonly class StateRecords
     private function appendInitial(Model $subject, string $lifecycle, CompiledDefinition $definition, LifecycleState $record, string $state, bool $scheduleExpiry): void
     {
         $now = Clock::now();
-        $version = $record->wasRecentlyCreated ? 1 : $record->version + 1;
+        $fresh = $record->version === 0;
+        $version = $record->version + 1;
 
         $row = $this->append($subject, $lifecycle, TransitionKind::Initial, null, $state, $version, null);
 
         $record->forceFill([
             'state' => $state,
-            'previous_state' => $record->wasRecentlyCreated ? null : $record->state,
+            'previous_state' => $fresh ? null : $record->state,
             'entered_at' => $now,
             'version' => $version,
         ])->save();

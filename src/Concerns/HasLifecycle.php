@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle\Concerns;
 
 use BackedEnum;
+use Carbon\CarbonInterval;
+use Closure;
+use DateInterval;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use RoundlyConsulting\Lifecycle\Contracts\LifecycleSubject;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
@@ -16,6 +20,8 @@ use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
+use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
@@ -118,6 +124,59 @@ trait HasLifecycle
         $handle = $this->lifecycle($lifecycle);
 
         $query->whereNotIn($query->qualifyColumn($handle->lifecycle), self::encodeLifecycleStates($handle, $states));
+    }
+
+    /**
+     * Subjects whose lifecycle is frozen right now.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereFrozen(Builder $query, ?string $lifecycle = null): void
+    {
+        $now = Clock::format(Clock::now());
+
+        $this->whereLifecycleRecord($query, $lifecycle, static function (QueryBuilder $records, string $table) use ($now): void {
+            $records->whereNotNull($table.'.frozen_at')
+                ->where(static fn (QueryBuilder $until) => $until->whereNull($table.'.frozen_until')->orWhere($table.'.frozen_until', '>', $now));
+        });
+    }
+
+    /**
+     * Subjects that have been in their current state for at least `$atLeast`.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWhereInStateFor(Builder $query, CarbonInterval|DateInterval|string $atLeast, ?string $lifecycle = null): void
+    {
+        $cutoff = Clock::format(Durations::sub(Clock::now(), Durations::parse($atLeast)));
+
+        $this->whereLifecycleRecord($query, $lifecycle, static function (QueryBuilder $records, string $table) use ($cutoff): void {
+            $records->where($table.'.entered_at', '<=', $cutoff);
+        });
+    }
+
+    /**
+     * A correlated `exists` on the subject's state record of one lifecycle.
+     *
+     * @param  Builder<static>  $query
+     * @param  Closure(QueryBuilder, string): void  $constraint
+     */
+    private function whereLifecycleRecord(Builder $query, ?string $lifecycle, Closure $constraint): void
+    {
+        $name = $this->lifecycle($lifecycle)->lifecycle;
+        $table = StateModel::newFor($this)->getTable();
+        $morph = $this->getMorphClass();
+        $key = $this->getQualifiedKeyName();
+
+        $query->whereExists(static function (QueryBuilder $records) use ($table, $morph, $key, $name, $constraint): void {
+            $records->selectRaw('1')
+                ->from($table)
+                ->where($table.'.subject_type', $morph)
+                ->whereColumn($table.'.subject_id', $key)
+                ->where($table.'.lifecycle', $name);
+
+            $constraint($records, $table);
+        });
     }
 
     /**

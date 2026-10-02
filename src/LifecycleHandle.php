@@ -6,16 +6,20 @@ namespace RoundlyConsulting\Lifecycle;
 
 use BackedEnum;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
+use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 
 /**
@@ -205,6 +209,32 @@ final readonly class LifecycleHandle
     public function transitionTo(BackedEnum|string|int $state): TransitionResult
     {
         return $this->manager->apply($this->request(null, $state));
+    }
+
+    /**
+     * Freeze until an instant, or until unfrozen; uses the handle's reason and actor (the
+     * actor is recorded for audit only — who may freeze is the host's policy).
+     */
+    public function freeze(?CarbonInterface $until = null): bool
+    {
+        return $this->manager->freeze(new FreezeRequest($this->subject, $this->lifecycle, $until, $this->reason, $this->actor));
+    }
+
+    public function unfreeze(): bool
+    {
+        return $this->manager->unfreeze(new UnfreezeRequest($this->subject, $this->lifecycle, $this->reason, $this->actor));
+    }
+
+    public function isFrozen(): bool
+    {
+        return $this->record()?->isFrozen(Clock::now()) ?? false;
+    }
+
+    public function frozenUntil(): ?CarbonImmutable
+    {
+        $record = $this->record();
+
+        return $record !== null && $record->isFrozen(Clock::now()) ? $record->frozen_until : null;
     }
 
     public function adopt(): bool

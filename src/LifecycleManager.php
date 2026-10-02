@@ -12,15 +12,19 @@ use RoundlyConsulting\Lifecycle\Actions\AdoptLifecycleAction;
 use RoundlyConsulting\Lifecycle\Actions\AdoptModelLifecyclesAction;
 use RoundlyConsulting\Lifecycle\Actions\ApplyTransitionAction;
 use RoundlyConsulting\Lifecycle\Actions\CheckTransitionAction;
+use RoundlyConsulting\Lifecycle\Actions\FreezeAction;
 use RoundlyConsulting\Lifecycle\Actions\InitializeLifecycleAction;
 use RoundlyConsulting\Lifecycle\Actions\ListAvailableTransitionsAction;
 use RoundlyConsulting\Lifecycle\Actions\SubjectDeletedAction;
+use RoundlyConsulting\Lifecycle\Actions\UnfreezeAction;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\FreezeRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\DirectStateWriteException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
@@ -94,6 +98,22 @@ class LifecycleManager
     public function available(AvailableTransitionsQuery $query): array
     {
         return $this->container->make(ListAvailableTransitionsAction::class)->execute($query);
+    }
+
+    /**
+     * Freeze a lifecycle (true when anything changed). Authorization is the host's.
+     */
+    public function freeze(FreezeRequest $request): bool
+    {
+        return $this->container->make(FreezeAction::class)->execute($request);
+    }
+
+    /**
+     * Lift a freeze (false when it was not frozen). Authorization is the host's.
+     */
+    public function unfreeze(UnfreezeRequest $request): bool
+    {
+        return $this->container->make(UnfreezeAction::class)->execute($request);
     }
 
     /**

@@ -9,8 +9,8 @@ use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\RestorePoint;
 use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Engine\SubjectLocker;
-use RoundlyConsulting\Lifecycle\Engine\TransitionExecutor;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
+use RoundlyConsulting\Lifecycle\Support\Transactions;
 use Throwable;
 
 /**
@@ -36,12 +36,12 @@ final readonly class AdoptLifecycleAction
         $restore = RestorePoint::capture($subject);
 
         try {
-            $changed = $subject->getConnection()->transaction(function () use ($subject, $lifecycle, $definition, $restore, $scheduleExpiry): bool {
+            $changed = Transactions::run($subject, function () use ($subject, $lifecycle, $definition, $restore, $scheduleExpiry): bool {
                 $restore->restore();
                 $this->locker->lock($subject);
 
                 return $this->records->lock($subject, $lifecycle, $definition, $scheduleExpiry)->changed;
-            }, TransitionExecutor::attempts());
+            });
         } catch (Throwable $exception) {
             $restore->restore();
 

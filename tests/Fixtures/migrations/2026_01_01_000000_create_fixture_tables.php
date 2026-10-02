@@ -47,6 +47,9 @@ return new class extends Migration
             $table->dateTime('expires_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
+            // The README's quota advice: index (state column, scope columns), so MySQL's locking
+            // count touches only the partition instead of every scanned row.
+            $table->index(['status', 'user_id']);
         });
 
         Schema::create('orders', function (Blueprint $table): void {

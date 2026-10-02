@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Lifecycle\Engine;
 use Carbon\CarbonImmutable;
 use Closure;
 use DateTimeInterface;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Auth\Access\Gate;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Date;
@@ -16,8 +17,10 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\Constraints\DeadlineRule;
+use RoundlyConsulting\Lifecycle\Definition\Constraints\RateLimitRule;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
+use RoundlyConsulting\Lifecycle\Enums\RateLimitScope;
 use RoundlyConsulting\Lifecycle\Exceptions\AmbiguousTransitionException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
@@ -35,6 +38,7 @@ final readonly class GuardPipeline
 {
     public function __construct(
         private Container $container,
+        private QuotaGate $quotas,
     ) {}
 
     /**
@@ -87,17 +91,174 @@ final readonly class GuardPipeline
     }
 
     /**
-     * Rows 4–19, collected.
+     * Rows 4–18, collected; row 19 (rate limits) only when everything else passed — `check()`
+     * peeks at it, `apply()` consumes it afterwards ({@see self::consumeRateLimits()}).
      */
     public function evaluate(Evaluation $evaluation): Decision
     {
-        return Decision::from([
+        $denials = [
+            ...$this->record($evaluation),
             ...$this->context($evaluation),
             ...$this->actor($evaluation),
             ...$this->input($evaluation),
             ...$this->deadlines($evaluation),
+            ...$this->limits($evaluation),
             ...$this->guards($evaluation),
-        ]);
+        ];
+
+        // A doomed apply counts in Check mode: no cross-subject mutex taken for nothing.
+        $denials = [...$denials, ...$this->quotas->check($evaluation, lock: $evaluation->mode === Mode::Apply && $denials === [])];
+
+        if ($denials === [] && $evaluation->mode === Mode::Check) {
+            $denials = $this->rateLimits($evaluation, consume: false);
+        }
+
+        return Decision::from($denials);
+    }
+
+    /**
+     * Row 19 in Apply mode: count one hit per rule; a rule over its limit refuses. Hits are
+     * never refunded, even when the transaction later fails.
+     */
+    public function consumeRateLimits(Evaluation $evaluation): Decision
+    {
+        return Decision::from($this->rateLimits($evaluation, consume: true));
+    }
+
+    /**
+     * Rows 4–6: the expected version, the freeze and the seal.
+     *
+     * @return list<Denial>
+     */
+    private function record(Evaluation $evaluation): array
+    {
+        $record = $evaluation->record;
+        $context = $evaluation->context;
+        $transition = $context->transition;
+        $params = $this->params($evaluation);
+        $denials = [];
+
+        if ($evaluation->expectedVersion !== null && ($record === null ? 0 : $record->version) !== $evaluation->expectedVersion) {
+            $denials[] = Denial::of(DenialCode::StaleVersion, $params, source: 'record');
+        }
+
+        if ($record === null) {
+            return $denials;
+        }
+
+        if (! $transition->ignoresFreeze && $record->isFrozen($context->now)) {
+            $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
+        }
+
+        $sealedAfter = $evaluation->definition->state($evaluation->fromKey())->sealedAfter;
+
+        if (! $transition->ignoresSeal && $sealedAfter !== null
+            && $context->now->greaterThanOrEqualTo(Durations::add($record->entered_at, $sealedAfter))) {
+            $denials[] = Denial::of(DenialCode::Sealed, $params, source: 'record');
+        }
+
+        return $denials;
+    }
+
+    /**
+     * Rows 14–16: minimum dwell and cooldown (user context), maximum occurrences (always).
+     * Counts come from the record, never from history, so pruning cannot reset them.
+     *
+     * @return list<Denial>
+     */
+    private function limits(Evaluation $evaluation): array
+    {
+        $record = $evaluation->record;
+
+        if ($record === null) {
+            return [];
+        }
+
+        $context = $evaluation->context;
+        $transition = $context->transition;
+        $params = $this->params($evaluation);
+        $denials = [];
+
+        $dwell = $evaluation->definition->state($evaluation->fromKey())->minDwell;
+
+        if (! $context->system && ! $transition->ignoresMinDwell && $dwell !== null) {
+            $until = Durations::add($record->entered_at, $dwell);
+
+            if ($context->now->lessThan($until)) {
+                $denials[] = Denial::of(DenialCode::MinDwellNotReached, [...$params, 'at' => self::display($until)], retryAfter: $until, source: 'limit');
+            }
+        }
+
+        $last = CounterBook::lastAt($record->counters, $transition->name);
+
+        if (! $context->system && $transition->cooldown !== null && $last !== null) {
+            $until = Durations::add($last, $transition->cooldown);
+
+            if ($context->now->lessThan($until)) {
+                $denials[] = Denial::of(DenialCode::CooldownActive, [...$params, 'at' => self::display($until)], retryAfter: $until, source: 'limit');
+            }
+        }
+
+        if ($transition->maxOccurrences !== null && CounterBook::count($record->counters, $transition->name) >= $transition->maxOccurrences) {
+            $denials[] = Denial::of(DenialCode::MaxOccurrencesReached, [...$params, 'max' => $transition->maxOccurrences], source: 'limit');
+        }
+
+        return $denials;
+    }
+
+    /**
+     * Row 19, user context only.
+     *
+     * @return list<Denial>
+     */
+    private function rateLimits(Evaluation $evaluation, bool $consume): array
+    {
+        $context = $evaluation->context;
+
+        if ($context->system) {
+            return [];
+        }
+
+        $limiter = $this->container->make(RateLimiter::class);
+        $denials = [];
+
+        foreach ($context->transition->rateLimits as $rule) {
+            $key = $this->rateLimitKey($evaluation, $rule);
+            $exceeded = $consume
+                ? $limiter->hit($key, Durations::seconds($rule->decay, $context->now)) > $rule->maxAttempts
+                : $limiter->tooManyAttempts($key, $rule->maxAttempts);
+
+            if ($exceeded) {
+                $at = $context->now->addSeconds($limiter->availableIn($key));
+                $denials[] = Denial::of(DenialCode::RateLimited, [...$this->params($evaluation), 'at' => self::display($at)], retryAfter: $at, source: 'rate_limit');
+            }
+        }
+
+        return $denials;
+    }
+
+    /**
+     * JSON-encoded parts — no delimiter a value could forge.
+     */
+    private function rateLimitKey(Evaluation $evaluation, RateLimitRule $rule): string
+    {
+        $context = $evaluation->context;
+        $parts = [];
+
+        if ($rule->per !== RateLimitScope::Subject) {
+            $parts[] = [$context->actor?->getMorphClass(), $context->actor?->getKey()];
+        }
+
+        if ($rule->per !== RateLimitScope::Actor) {
+            $parts[] = [$context->subject->getMorphClass(), $context->subject->getKey()];
+        }
+
+        $prefix = config('lifecycle.rate_limits.prefix', 'lifecycle');
+
+        return json_encode(
+            [is_string($prefix) ? $prefix : 'lifecycle', $evaluation->definition->class, $context->transition->name, $parts],
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE,
+        );
     }
 
     /**

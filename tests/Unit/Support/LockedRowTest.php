@@ -25,6 +25,15 @@ it('inserts a missing row once and locks the existing one afterwards', function 
         ->and(QuotaLock::query()->count())->toBe(1);
 });
 
+it('creates a missing mutex row once and locks it', function () use ($key): void {
+    $first = LockedRow::mutex(QuotaLock::query(), $key);
+    $second = LockedRow::mutex(QuotaLock::query(), $key);
+
+    expect($second->id)->toBe($first->id)
+        ->and($first->created_at)->not->toBeNull()
+        ->and(QuotaLock::query()->count())->toBe(1);
+});
+
 it('rethrows a unique violation when the winner cannot be read back', function () use ($key): void {
     QuotaLock::creating(function () use ($key): void {
         DB::table('lifecycle_quota_locks')->insert($key);
