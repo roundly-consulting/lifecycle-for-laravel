@@ -41,8 +41,8 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Readme\Listing;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Readme\ListingLifecycle;
 
 /**
- * The README's snippets, run as written (host-specific collaborators replaced by small
- * stand-ins), so the documentation cannot rot.
+ * The documented snippets (the quick start and the website docs' examples), run as written
+ * (host-specific collaborators replaced by small stand-ins), so the documentation cannot rot.
  */
 beforeEach(function (): void {
     Carbon::setTestNow(CarbonImmutable::parse('2026-10-02 08:00:00', 'UTC'));
@@ -355,13 +355,33 @@ it('runs the strict-write snippets', function (): void {
         ->and(Lifecycles::model(Listing::class)->adopt(chunk: 500))->toBe(0);
 });
 
-it('renders the README graph and runs the definition helpers', function (): void {
-    $readme = (string) file_get_contents(__DIR__.'/../../README.md');
-    preg_match('/```mermaid\n(.*?)```/s', $readme, $graph);
+it('renders the documented graph and runs the definition helpers', function (): void {
+    // The Mermaid graph the docs print for the quick-start definition, verbatim.
+    $graph = <<<'MERMAID'
+        stateDiagram-v2
+            state "Draft" as s0
+            state "Active" as s1
+            state "Closed" as s2
+            state "Expired" as s3
+            state "Archived" as s4
+            [*] --> s0
+            s0 --> s1: publish
+            s1 --> s2: close
+            s2 --> s1: reopen
+            s1 --> s3: expire ⚙
+            s3 --> s1: reactivate
+            s0 --> s4: archive
+            s1 --> s4: archive
+            s2 --> s4: archive
+            s3 --> s4: archive
+            s4 --> [*]
+            note right of s1: ttl 30 days · grace 3 days · quota
+
+        MERMAID;
 
     $model = Lifecycles::model(Listing::class);
 
-    expect($model->graph())->toBe($graph[1] ?? '')
+    expect($model->graph())->toBe($graph)
         ->and($model->states())->toHaveCount(5)
         ->and($model->initial())->toBe(ListingStatus::Draft)
         ->and($model->terminal())->toBe([ListingStatus::Archived])
