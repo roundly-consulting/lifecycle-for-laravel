@@ -126,8 +126,8 @@ it('runs the version and idempotency snippets', function (): void {
     $version = Lifecycles::for($listing)->version();
     Lifecycles::for($listing)->expectingVersion($version)->apply('close');
 
-    $first = Lifecycles::for($order)->idempotencyKey("stripe:{$event->id}")->apply('pay');
-    $result = Lifecycles::for($order)->idempotencyKey("stripe:{$event->id}")->apply('pay');
+    $first = Lifecycles::for($order)->idempotencyKey("payments:{$event->id}")->apply('pay');
+    $result = Lifecycles::for($order)->idempotencyKey("payments:{$event->id}")->apply('pay');
 
     expect($version)->toBe(2)
         ->and(fn () => Lifecycles::for($listing)->expectingVersion($version)->apply('reopen'))

@@ -342,12 +342,14 @@ return [
 | `schedules.queue.enabled` | bool | `false` | `LIFECYCLE_QUEUE_SWEEPS` | The sweep dispatches one job per due schedule instead of running it inline. |
 | `schedules.queue.connection` | ?string | `null` | `LIFECYCLE_QUEUE_CONNECTION` | Queue connection of those jobs. |
 | `schedules.queue.name` | ?string | `null` | `LIFECYCLE_QUEUE` | Queue name of those jobs. |
-| `schedules.prune_after_days` | ?int | `30` | `LIFECYCLE_SCHEDULES_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for finished schedule rows (`null` = never). |
+| `schedules.prune_after_days` | ?int 1–36500 | `30` | `LIFECYCLE_SCHEDULES_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for finished schedule rows (`null` = never). |
 | `rate_limits.prefix` | string | `lifecycle` | — | Prefix of the rate-limiter keys of `rateLimit()` transitions. |
 | `graph.default_format` | `mermaid`\|`dot` | `mermaid` | — | Graph format when none is given. |
 
 Booleans accept `true/false/1/0/yes/no/on/off` (an empty value is false); any other value throws
 the toolkit's `InvalidConfigurationException`, so a typo never silently falls back to the default.
+`key_type` and `actor_key_type` accept only `bigint`, `uuid` or `ulid` (case-insensitive); anything
+else, an empty value included, throws the same toolkit exception during `migrate` and `about`.
 A number or interval outside its range throws `InvalidLifecycleConfigurationException`.
 `php artisan about` shows a **Lifecycle** section.
 
@@ -512,7 +514,7 @@ Lifecycles::for($listing)->expectingVersion(4)->apply('close'); // refused with 
 Idempotency for webhooks and retries:
 
 ```php
-$result = Lifecycles::for($order)->idempotencyKey("stripe:{$event->id}")->apply('pay');
+$result = Lifecycles::for($order)->idempotencyKey("payments:{$event->id}")->apply('pay');
 $result->replayed;   // true when this key was already applied; nothing ran again
 ```
 
@@ -1074,7 +1076,7 @@ asked to do:
 - **Freezes**: a faked `freeze()` refuses later transitions (`frozen`) unless they
   `ignoresFreeze()`, until `unfreeze()` or its `until`. Both return what the real calls return.
 - **Schedules**: `schedule()` runs the real schedule-time checks (unknown, terminal or wrong-source
-  transition, system context, freeze). `cancelScheduled()` returns `true` once for a schedule the
+  transition, system context, freeze, a payload without `rules()`). `cancelScheduled()` returns `true` once for a schedule the
   fake made, and a faked transition that leaves the state forgets its schedules.
 - **Expiry**: `renew()`, `extend()` and `expireAt()` return the instant the real call would set
   (now + the state's TTL for `renew()`); a state without an expiry throws `ExpiryException`. The
@@ -1085,11 +1087,11 @@ fake still starts in its initial state, and a direct write still throws. Handle 
 database (`enteredAt()`, `isFrozen()`, `expiresAt()`, `history()`, `scheduled()`) see no faked
 changes, so use the assertions:
 
-`assertTransitioned($subject, ?$transition, ?$callback)`, `assertTransitionedTo($subject, $state)`,
+`assertTransitioned($subject, ?$transition, ?$callback)`, `assertTransitionedTo($subject, $state, ?$lifecycle)`,
 `assertNotTransitioned()`, `assertNothingTransitioned()`, `assertTransitionDenied($subject, ?$transition, ?$code)`,
 `assertRolledBack()`, `assertNothingRolledBack()`, `assertFrozen()`, `assertUnfrozen()`,
 `assertNothingFrozen()`, `assertNothingUnfrozen()`, `assertScheduled($subject, $transition, ?$at)`,
-`assertNothingScheduled()`, `assertScheduleCancelled($subject, ?$transition)`, `assertNothingCancelled()`,
+`assertNothingScheduled()` (both count accepted schedules only), `assertScheduleCancelled($subject, ?$transition)`, `assertNothingCancelled()`,
 `assertExpiryChanged($subject, ?ExpiryChange)`, `assertNoExpiryChanged()`, `assertAdopted()`,
 `assertNothingAdopted()`, `assertSwept(?$times)`, `assertNotSwept()`, `assertWarned(?$times)`,
 `assertNotWarned()`, `assertScheduleRetried(?$scheduleId)`, `assertNothingRetried()`, `assertPruned()`,
