@@ -44,8 +44,10 @@ Initial public release.
 - Strict state writes, drift adoption and `lifecycle:adopt` for existing tables.
 - Query scopes: `whereState`, `whereNotState`, `whereExpired`, `whereNotExpired`,
   `whereExpiringWithin`, `whereInGrace`, `whereFrozen`, `whereInStateFor` and `withLifecycle`.
-- `LifecycleResource` and `TransitionRecordResource`, the `ValidTransition` and `ValidState` rules
-  and the `AsLifecycleState` cast.
+- `LifecycleResource` (also straight from a model, so
+  `LifecycleResource::collection(Listing::query()->withLifecycle()->get())` reads state, freeze,
+  expiry and the last transition without a query per model) and `TransitionRecordResource`, the
+  `ValidTransition` and `ValidState` rules and the `AsLifecycleState` cast.
 - A `make:lifecycle` generator (string states or `--enum`, publishable stubs), Mermaid and DOT
   graphs (`lifecycle:graph`) and `lifecycle:show`.
 - The `Lifecycles` facade over an injectable `LifecycleManager` and public action classes, with

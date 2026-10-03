@@ -42,5 +42,6 @@ final readonly class RestorePoint
         $subject->unsetRelation('lifecycleStates');
         $subject->unsetRelation('lifecycleSchedules');
         $subject->unsetRelation('lifecycleHistory');
+        $subject->unsetRelation('lifecycleLatestTransitions');
     }
 }

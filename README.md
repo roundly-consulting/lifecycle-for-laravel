@@ -416,8 +416,8 @@ The lifecycle columns are plain string (or integer) columns on your table; the p
 tables for records, history, schedules and quota locks. Add an index on the state column plus any
 quota scope columns, for example `$table->index(['status', 'user_id'])`.
 
-`HasLifecycle` adds the relations `lifecycleStates()`, `lifecycleHistory()` and
-`lifecycleSchedules()`, the methods `lifecycle()`, `transition()`, `transitionTo()`,
+`HasLifecycle` adds the relations `lifecycleStates()`, `lifecycleHistory()`,
+`lifecycleSchedules()` and `lifecycleLatestTransitions()`, the methods `lifecycle()`, `transition()`, `transitionTo()`,
 `canTransition()` and `canTransitionTo()`, and the scopes below. These names are reserved on the
 model. A relation or attribute called `lifecycle` or `transition` must be renamed, or use the
 facade (`Lifecycles::for($model)`), which needs no trait method.
@@ -795,7 +795,7 @@ Listing::query()->whereNotExpired()->get();
 Listing::query()->whereInGrace()->get();
 Listing::query()->whereFrozen()->get();
 Listing::query()->whereInStateFor('14 days')->get();           // entered the current state at least 14 days ago
-Listing::query()->withLifecycle()->paginate();                 // eager-load records and open schedules
+Listing::query()->withLifecycle()->paginate();                 // eager-load records, open schedules and latest history rows
 
 Order::query()->whereState(PaymentStatus::Captured, 'payment_status')->get();
 ```
@@ -877,6 +877,9 @@ use RoundlyConsulting\Lifecycle\Rules\ValidTransition;
 // One response feeds the buttons: state, freeze, expiry and every transition with its reasons
 return LifecycleResource::make(Lifecycles::for($listing)->by($request->user()));
 
+// A list: a model stands for its primary lifecycle, with the actor from auth
+return LifecycleResource::collection(Listing::query()->withLifecycle()->get());
+
 // History rows (context and snapshot only on request)
 return TransitionRecordResource::collection(Lifecycles::for($listing)->history());
 (new TransitionRecordResource($record))->withContext();
@@ -899,8 +902,9 @@ try {
 `LifecycleResource` returns `lifecycle`, `state`, `state_label`, `terminal`, `entered_at`, `version`,
 `frozen` (`until`, `reason`), `expiry` (`expires_at`, `due_at`, `in_grace`), `allowed_transitions`
 (including refused ones, with `denials`, `requires_reason`, `payload_fields`, `available_at`) and
-`last_transition`. Instants are ISO-8601 UTC. Eager-load with `withLifecycle()` to avoid N+1 queries
-in collections.
+`last_transition`. Instants are ISO-8601 UTC. With `withLifecycle()`, a collection reads the state,
+freeze, expiry and last transition without a query per model. Guards, Gate policies and quota
+counts of each allowed transition still run their own queries.
 
 `TransitionDeniedException` and `RollbackDeniedException` implement the toolkit's `HasRetryAfter`.
 `retryAfterSeconds()` gives a `Retry-After` value for `rate_limited` or `cooldown_active`.

@@ -33,8 +33,9 @@ use RoundlyConsulting\Lifecycle\Support\TransitionModel;
  * Gives a LifecycleSubject its model hooks, relations, transition sugar and query scopes.
  * Every behaviour goes through LifecycleManager, so `Lifecycles::fake()` sees it.
  *
- * The method names below are reserved on the model: a relation or attribute named
- * `lifecycle` or `transition` must be renamed.
+ * The method names below are reserved on the model (including the relations
+ * `lifecycleStates`, `lifecycleHistory`, `lifecycleSchedules` and `lifecycleLatestTransitions`):
+ * a relation or attribute named `lifecycle` or `transition` must be renamed.
  *
  * @phpstan-require-extends Model
  *
@@ -68,6 +69,25 @@ trait HasLifecycle
     public function lifecycleHistory(): MorphMany
     {
         return $this->morphMany(TransitionModel::class(), 'subject');
+    }
+
+    /**
+     * The newest history row of each lifecycle — what `lastTransition()` and the resource read.
+     * Eager-loaded by `withLifecycle()`; served by the (subject, lifecycle, id) history index.
+     *
+     * @return MorphMany<LifecycleTransition, $this>
+     */
+    public function lifecycleLatestTransitions(): MorphMany
+    {
+        $table = TransitionModel::newFor($this)->getTable();
+
+        return $this->morphMany(TransitionModel::class(), 'subject')
+            ->whereNotExists(static fn (QueryBuilder $newer) => $newer->selectRaw('1')
+                ->from($table.' as newer')
+                ->whereColumn('newer.subject_type', $table.'.subject_type')
+                ->whereColumn('newer.subject_id', $table.'.subject_id')
+                ->whereColumn('newer.lifecycle', $table.'.lifecycle')
+                ->whereColumn('newer.id', '>', $table.'.id'));
     }
 
     /**
@@ -215,8 +235,8 @@ trait HasLifecycle
     }
 
     /**
-     * Eager-load the state records and open schedules, so handles and resources read them
-     * without a query per subject.
+     * Eager-load the state records, open schedules and latest history rows, so handles and
+     * resources read state, freeze, expiry and the last transition without a query per subject.
      *
      * @param  Builder<static>  $query
      */
@@ -225,6 +245,7 @@ trait HasLifecycle
         $query->with([
             'lifecycleStates',
             'lifecycleSchedules' => static fn ($schedules) => $schedules->whereIn('status', [ScheduleStatus::Pending->value, ScheduleStatus::Paused->value]),
+            'lifecycleLatestTransitions.revertedBy',
         ]);
     }
 

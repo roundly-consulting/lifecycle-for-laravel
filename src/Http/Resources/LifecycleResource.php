@@ -4,25 +4,30 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Http\Resources;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\App;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\LifecycleHandle;
+use RoundlyConsulting\Lifecycle\LifecycleManager;
 
 /**
  * One lifecycle of a subject for an API: state, freeze, expiry and every transition leaving
  * the current state — refused ones too, with their reasons, so a UI can show disabled
- * buttons. Checked for the handle's actor (`Lifecycles::for($listing)->by($user)`).
+ * buttons. Checked for the handle's actor (`Lifecycles::for($listing)->by($user)`); a model
+ * stands for its primary lifecycle with the actor from auth, so
+ * `LifecycleResource::collection(Listing::query()->withLifecycle()->get())` works.
  *
  * @property LifecycleHandle $resource
  */
 final class LifecycleResource extends JsonResource
 {
-    public function __construct(LifecycleHandle $handle)
+    public function __construct(LifecycleHandle|Model $resource)
     {
-        parent::__construct($handle);
+        parent::__construct($resource instanceof Model ? App::make(LifecycleManager::class)->for($resource) : $resource);
     }
 
     /**

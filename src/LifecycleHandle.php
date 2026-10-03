@@ -45,8 +45,8 @@ use RoundlyConsulting\Lifecycle\Support\TransitionModel;
  *
  * Immutable — `by()`, `asSystem()`, `because()`, `with()`, `expectingVersion()` and
  * `idempotencyKey()` return a new handle. Every mutation goes through the manager, so the
- * fake sees calls made through a handle. Reads use the eager-loaded `lifecycleStates`
- * relation when present (`withLifecycle()`), else query.
+ * fake sees calls made through a handle. Reads use the eager-loaded relations when present
+ * (`withLifecycle()`: records, open schedules, latest history rows), else query.
  */
 final readonly class LifecycleHandle
 {
@@ -298,9 +298,25 @@ final readonly class LifecycleHandle
             ->toBase();
     }
 
+    /**
+     * The newest history row — from the eager-loaded `lifecycleLatestTransitions` relation when
+     * present (`withLifecycle()`), else queried.
+     */
     public function lastTransition(): ?TransitionRecord
     {
-        return $this->history(1)->first();
+        if (! $this->subject->relationLoaded('lifecycleLatestTransitions')) {
+            return $this->history(1)->first();
+        }
+
+        $loaded = $this->subject->getRelation('lifecycleLatestTransitions');
+
+        foreach (is_iterable($loaded) ? $loaded : [] as $row) {
+            if ($row instanceof LifecycleTransition && $row->lifecycle === $this->lifecycle) {
+                return $row->toRecord($this->definition());
+            }
+        }
+
+        return null;
     }
 
     /**

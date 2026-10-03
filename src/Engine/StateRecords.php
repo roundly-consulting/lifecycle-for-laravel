@@ -32,9 +32,25 @@ final readonly class StateRecords
         private ScheduleBook $schedules,
     ) {}
 
+    /**
+     * The record for a check — from the eager-loaded `lifecycleStates` relation when present
+     * (`withLifecycle()`), else queried. Never used inside a mutation: those lock().
+     */
     public function find(Model $subject, string $lifecycle): ?LifecycleState
     {
-        return StateModel::of($subject, $lifecycle)->first();
+        if (! $subject->relationLoaded('lifecycleStates')) {
+            return StateModel::of($subject, $lifecycle)->first();
+        }
+
+        $loaded = $subject->getRelation('lifecycleStates');
+
+        foreach (is_iterable($loaded) ? $loaded : [] as $record) {
+            if ($record instanceof LifecycleState && $record->lifecycle === $lifecycle) {
+                return $record;
+            }
+        }
+
+        return null;
     }
 
     /**
