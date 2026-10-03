@@ -18,7 +18,11 @@ use Illuminate\Contracts\Foundation\Application;
  */
 final class SweepSchedule
 {
-    public static function isScheduled(): ?bool
+    /**
+     * Whether a sweep of `$connection`'s package tables is scheduled (null = the default
+     * connection): `lifecycle:sweep`, with `--database=<connection>` for any other one.
+     */
+    public static function isScheduled(?string $connection = null): ?bool
     {
         $container = Container::getInstance();
 
@@ -26,8 +30,10 @@ final class SweepSchedule
             return null;
         }
 
+        $wanted = self::connection($connection);
+
         foreach ($container->make(Schedule::class)->events() as $event) {
-            if (self::sweeps($event)) {
+            if (self::sweeps($event) && self::connection(self::database($event)) === $wanted) {
                 return true;
             }
         }
@@ -38,5 +44,23 @@ final class SweepSchedule
     private static function sweeps(Event $event): bool
     {
         return is_string($event->command) && str_contains($event->command, 'lifecycle:sweep');
+    }
+
+    /**
+     * The `--database` a scheduled sweep names, if any.
+     */
+    private static function database(Event $event): ?string
+    {
+        return preg_match('/--database[= ]+[\'"]?([^\s\'"]+)/', (string) $event->command, $match) === 1 ? $match[1] : null;
+    }
+
+    /**
+     * A connection name, with the default connection (null or its own name) as ''.
+     */
+    private static function connection(?string $name): string
+    {
+        $default = config('database.default');
+
+        return $name === null || $name === $default ? '' : $name;
     }
 }

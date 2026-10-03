@@ -18,7 +18,8 @@ final class PruneCommand extends Command
     protected $signature = 'lifecycle:prune
         {--history-days= : Delete history rows older than this many days}
         {--schedule-days= : Delete finished schedule rows older than this many days}
-        {--dry-run : Only count what would be deleted}';
+        {--dry-run : Only count what would be deleted}
+        {--database= : The database connection whose package tables to prune (default: the default connection)}';
 
     protected $description = 'Prune old lifecycle history and finished schedules';
 
@@ -42,7 +43,8 @@ final class PruneCommand extends Command
         }
 
         $dryRun = $this->option('dry-run') === true;
-        $result = $lifecycle->prune(new PruneOptions($history, $schedules, $dryRun));
+        $database = $this->option('database');
+        $result = $lifecycle->prune(new PruneOptions($history, $schedules, $dryRun, is_string($database) && $database !== '' ? $database : null));
 
         $this->info(sprintf(
             '%s %d history row(s) and %d schedule row(s).',

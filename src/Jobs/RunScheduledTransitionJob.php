@@ -27,8 +27,12 @@ final class RunScheduledTransitionJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 3600;
 
+    /**
+     * @param  string|null  $database  the database connection holding the schedule row (null = default)
+     */
     public function __construct(
         public readonly int $scheduleId,
+        public readonly ?string $database = null,
     ) {
         $connection = config('lifecycle.schedules.queue.connection');
         $queue = config('lifecycle.schedules.queue.name');
@@ -39,11 +43,11 @@ final class RunScheduledTransitionJob implements ShouldBeUnique, ShouldQueue
 
     public function uniqueId(): string
     {
-        return (string) $this->scheduleId;
+        return $this->database === null ? (string) $this->scheduleId : $this->database.':'.$this->scheduleId;
     }
 
     public function handle(RunScheduledTransitionAction $action): void
     {
-        $action->execute($this->scheduleId, Clock::now());
+        $action->execute($this->scheduleId, Clock::now(), $this->database);
     }
 }

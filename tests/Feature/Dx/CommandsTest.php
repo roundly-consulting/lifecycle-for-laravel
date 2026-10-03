@@ -14,6 +14,7 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\TicketLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\SecondaryDocument;
 
 function artisan(string $command, array $parameters = []): array
 {
@@ -138,6 +139,23 @@ it('does not warn about the sweep for a definition without expiries or system tr
     [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
 
     expect($code)->toBe(0)->and($output)->not->toContain('lifecycle:sweep');
+});
+
+it('warns when the sweep of a subject connection is not scheduled', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn ($go) => $go->allowSystem()));
+    config()->set('database.connections.secondary', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+    config()->set('lifecycle.subjects', [SecondaryDocument::class]);
+    app(Schedule::class)->command('lifecycle:sweep')->everyMinute();
+    $warning = 'lifecycle:sweep --database=secondary is not scheduled';
+
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(1)->and($output)->toContain($warning);
+
+    app(Schedule::class)->command('lifecycle:sweep --database=secondary')->everyMinute();
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(0)->and($output)->not->toContain($warning);
 });
 
 it('warns about the sweep for a definition with a system transition only', function (): void {

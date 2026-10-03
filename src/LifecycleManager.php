@@ -194,18 +194,23 @@ class LifecycleManager
         return $this->container()->make(SendExpiryWarningsAction::class)->execute($options);
     }
 
-    public function retrySchedule(int $scheduleId): bool
+    /**
+     * Put a failed schedule back to pending. Schedule ids are per database connection: name the
+     * connection of a subject that does not use the default one.
+     */
+    public function retrySchedule(int $scheduleId, ?string $connection = null): bool
     {
-        return $this->container()->make(RetryScheduleAction::class)->execute($scheduleId);
+        return $this->container()->make(RetryScheduleAction::class)->execute($scheduleId, $connection);
     }
 
     /**
      * Expiry warnings, then every due schedule — what `lifecycle:sweep` runs. A null queue
-     * flag follows `schedules.queue.enabled`.
+     * flag follows `schedules.queue.enabled`; a null connection sweeps the default one (the
+     * package rows of a subject live on the subject's connection).
      */
-    public function sweep(?int $limit = null, ?bool $queue = null): SweepResult
+    public function sweep(?int $limit = null, ?bool $queue = null, ?string $connection = null): SweepResult
     {
-        return $this->runDueSchedules(new SweepOptions($limit, $queue, warnings: true));
+        return $this->runDueSchedules(new SweepOptions($limit, $queue, warnings: true, connection: $connection));
     }
 
     /**

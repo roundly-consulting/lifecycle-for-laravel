@@ -27,9 +27,13 @@ final readonly class RetryScheduleAction
         private StateRecords $records,
     ) {}
 
-    public function execute(int $scheduleId): bool
+    /**
+     * `$connection`: the database connection holding the schedule row (the default when null) —
+     * schedule ids are per connection.
+     */
+    public function execute(int $scheduleId, ?string $connection = null): bool
     {
-        $schedule = ScheduleModel::query()->find($scheduleId);
+        $schedule = ScheduleModel::query($connection)->find($scheduleId);
         $subject = $schedule === null ? null : SubjectResolver::find($schedule->subject_type, $schedule->subject_id);
 
         if ($subject === null) {

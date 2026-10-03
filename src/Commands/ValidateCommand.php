@@ -58,14 +58,17 @@ final class ValidateCommand extends Command
         }
 
         $failed = false;
-        $needsSweep = false;
+        /** @var array<string, true> $sweeps connections whose package tables need a sweep ('' = default) */
+        $sweeps = [];
 
         foreach ($targets as $target) {
             try {
                 $class = $this->definitionClass($arguments, $registry, $target);
                 $report = $registry->validate($class);
                 $columns = str_contains($target, ':') && $report->isValid() ? $this->missingColumns($arguments, $target) : [];
-                $needsSweep = $needsSweep || ($report->isValid() && self::needsSweep($registry->get($class)));
+                if ($report->isValid() && self::needsSweep($registry->get($class))) {
+                    $sweeps[$this->connectionOf($arguments, $target)] = true;
+                }
             } catch (LifecycleException $exception) {
                 $this->error(sprintf('%s: %s', $target, $exception->getMessage()));
                 $failed = true;
@@ -89,8 +92,16 @@ final class ValidateCommand extends Command
             $failed = $failed || $errors !== [] || ($this->option('strict') === true && $warnings !== []);
         }
 
-        if ($needsSweep && SweepSchedule::isScheduled() === false) {
-            $this->line('  <comment>warning</comment> lifecycle:sweep is not scheduled — expiries and scheduled transitions will never run.');
+        foreach (array_keys($sweeps) as $connection) {
+            $connection = (string) $connection;
+
+            if (SweepSchedule::isScheduled($connection === '' ? null : $connection) !== false) {
+                continue;
+            }
+
+            $this->line($connection === ''
+                ? '  <comment>warning</comment> lifecycle:sweep is not scheduled — expiries and scheduled transitions will never run.'
+                : sprintf('  <comment>warning</comment> lifecycle:sweep --database=%1$s is not scheduled — expiries and scheduled transitions of subjects on the [%1$s] connection will never run.', $connection));
             $failed = $failed || $this->option('strict') === true;
         }
 
@@ -105,6 +116,22 @@ final class ValidateCommand extends Command
     {
         return $definition->expiringStates() !== []
             || array_filter($definition->transitions, static fn (TransitionDefinition $transition): bool => $transition->allowsSystem()) !== [];
+    }
+
+    /**
+     * The database connection a target's package rows live on ('' = the default): a model's own
+     * connection for `Model:attribute`, the default for a definition class.
+     */
+    private function connectionOf(ResolvesLifecycleArguments $arguments, string $target): string
+    {
+        if (! str_contains($target, ':')) {
+            return '';
+        }
+
+        [$model] = explode(':', $target, 2);
+        $connection = (new ($arguments->model($model)))->getConnectionName();
+
+        return $connection === null || $connection === config('database.default') ? '' : $connection;
     }
 
     /**

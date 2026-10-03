@@ -41,7 +41,7 @@ final readonly class RunDueSchedulesAction
         $limit = $options->limit ?? $config->intBetween('lifecycle.schedules.max_per_run', 1, 1000000, 10000);
         $batch = $config->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500);
         $queue = $options->queue ?? Config::boolean('lifecycle.schedules.queue.enabled');
-        $this->resumeRestored();
+        $this->resumeRestored($options->connection);
         $warned = $options->warnings ? $this->warnings->execute($options) : 0;
 
         $now = Clock::now();
@@ -50,7 +50,7 @@ final readonly class RunDueSchedulesAction
         $done = 0;
 
         while ($done < $limit) {
-            $query = ScheduleModel::query()
+            $query = ScheduleModel::query($options->connection)
                 ->where('status', ScheduleStatus::Pending->value)
                 ->where('due_at', '<=', Clock::format($now))
                 ->orderBy('due_at')
@@ -71,7 +71,7 @@ final readonly class RunDueSchedulesAction
 
             foreach ($rows as $row) {
                 if ($queue) {
-                    $job = new RunScheduledTransitionJob($row->id);
+                    $job = new RunScheduledTransitionJob($row->id, $options->connection);
 
                     // ShouldBeUnique is only enforced by Foundation's PendingDispatch, which a
                     // dispatch through the Bus contract never reaches: take the lock here.
@@ -85,7 +85,7 @@ final readonly class RunDueSchedulesAction
                     continue;
                 }
 
-                $counts[$this->run->execute($row->id, $now)->value]++;
+                $counts[$this->run->execute($row->id, $now, $options->connection)->value]++;
             }
 
             $last = $rows->last();
@@ -110,9 +110,9 @@ final readonly class RunDueSchedulesAction
      * them. A restore that fires no event (`restoreQuietly()`, a query-builder `restore()`) is
      * caught here: paused rows whose subject row exists and is not trashed are pending again.
      */
-    private function resumeRestored(): void
+    private function resumeRestored(?string $connection): void
     {
-        $types = ScheduleModel::query()->where('status', ScheduleStatus::Paused->value)->distinct()->pluck('subject_type')->all();
+        $types = ScheduleModel::query($connection)->where('status', ScheduleStatus::Paused->value)->distinct()->pluck('subject_type')->all();
 
         foreach ($types as $type) {
             try {
@@ -122,7 +122,7 @@ final readonly class RunDueSchedulesAction
             }
 
             $subject = new $class;
-            $rows = ScheduleModel::query()->where('status', ScheduleStatus::Paused->value)->where('subject_type', $type);
+            $rows = ScheduleModel::query($connection)->where('status', ScheduleStatus::Paused->value)->where('subject_type', $type);
             $table = $rows->getModel()->getTable();
 
             $rows->whereExists(static function (QueryBuilder $live) use ($subject, $table): void {

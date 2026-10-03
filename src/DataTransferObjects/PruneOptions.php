@@ -7,7 +7,8 @@ namespace RoundlyConsulting\Lifecycle\DataTransferObjects;
 /**
  * Prune history rows and finished schedule rows older than so many days; null takes the
  * configured default (`history.prune_after_days`, `schedules.prune_after_days`), where null
- * means never.
+ * means never. `connection` names the database connection whose package tables are pruned (the
+ * default when null).
  */
 final readonly class PruneOptions
 {
@@ -15,5 +16,6 @@ final readonly class PruneOptions
         public ?int $historyOlderThanDays = null,
         public ?int $schedulesOlderThanDays = null,
         public bool $dryRun = false,
+        public ?string $connection = null,
     ) {}
 }

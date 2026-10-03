@@ -29,3 +29,16 @@ it('does not know outside an application console', function (): void {
         Container::setInstance($application);
     }
 });
+
+it('tells the sweep of each database connection apart', function (): void {
+    app(Schedule::class)->command('lifecycle:sweep --database=secondary')->everyMinute();
+
+    expect(SweepSchedule::isScheduled())->toBeFalse()
+        ->and(SweepSchedule::isScheduled('secondary'))->toBeTrue()
+        ->and(SweepSchedule::isScheduled('tenant'))->toBeFalse();
+
+    app(Schedule::class)->command('lifecycle:sweep --database '.config('database.default'))->everyMinute();
+
+    expect(SweepSchedule::isScheduled())->toBeTrue()
+        ->and(SweepSchedule::isScheduled(config('database.default')))->toBeTrue();
+});

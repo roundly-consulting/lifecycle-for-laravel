@@ -62,9 +62,12 @@ final readonly class RunScheduledTransitionAction
         private TransitionExecutor $executor,
     ) {}
 
-    public function execute(int $scheduleId, CarbonImmutable $now): ScheduleRun
+    /**
+     * `$connection`: the database connection holding the schedule row (the default when null).
+     */
+    public function execute(int $scheduleId, CarbonImmutable $now, ?string $connection = null): ScheduleRun
     {
-        $schedule = ScheduleModel::query()->find($scheduleId);
+        $schedule = ScheduleModel::query($connection)->find($scheduleId);
 
         if ($schedule === null || $schedule->status !== ScheduleStatus::Pending || $schedule->due_at->greaterThan($now)) {
             return ScheduleRun::Skipped;
@@ -93,7 +96,7 @@ final readonly class RunScheduledTransitionAction
         } catch (Throwable $exception) {
             $this->exceptions->report($exception);
 
-            return $this->recordError($scheduleId, $now);
+            return $this->recordError($scheduleId, $now, $connection);
         }
     }
 
@@ -228,9 +231,9 @@ final readonly class RunScheduledTransitionAction
      * An exception rolled the schedule's transaction back: count it in a small transaction
      * of its own, and fail the schedule once the attempts run out.
      */
-    private function recordError(int $scheduleId, CarbonImmutable $now): ScheduleRun
+    private function recordError(int $scheduleId, CarbonImmutable $now, ?string $connection): ScheduleRun
     {
-        $schedule = ScheduleModel::query()->find($scheduleId);
+        $schedule = ScheduleModel::query($connection)->find($scheduleId);
 
         if ($schedule === null || ! $schedule->status->isOpen()) {
             return ScheduleRun::Errored;

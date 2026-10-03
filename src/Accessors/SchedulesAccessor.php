@@ -22,7 +22,8 @@ use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 /**
  * `Lifecycles::schedules()`: run due schedules, send warnings, retry a failed schedule, list
  * what is due and what failed. Mutating methods go through the manager, so the fake records
- * them.
+ * them. Each works on one database connection's package tables — the default unless named
+ * (package rows live on their subject's connection).
  */
 final readonly class SchedulesAccessor
 {
@@ -34,25 +35,25 @@ final readonly class SchedulesAccessor
     /**
      * Run due schedules without sending warnings (`sweep()` does both).
      */
-    public function runDue(?int $limit = null, ?bool $queue = null): SweepResult
+    public function runDue(?int $limit = null, ?bool $queue = null, ?string $connection = null): SweepResult
     {
-        return $this->manager->runDueSchedules(new SweepOptions($limit, $queue, warnings: false));
+        return $this->manager->runDueSchedules(new SweepOptions($limit, $queue, warnings: false, connection: $connection));
     }
 
     /**
      * Send due expiry warnings; returns how many fired.
      */
-    public function warn(?int $limit = null): int
+    public function warn(?int $limit = null, ?string $connection = null): int
     {
-        return $this->manager->sendExpiryWarnings(new SweepOptions($limit));
+        return $this->manager->sendExpiryWarnings(new SweepOptions($limit, connection: $connection));
     }
 
     /**
      * Put a failed schedule back to pending (attempts reset).
      */
-    public function retry(int $scheduleId): bool
+    public function retry(int $scheduleId, ?string $connection = null): bool
     {
-        return $this->manager->retrySchedule($scheduleId);
+        return $this->manager->retrySchedule($scheduleId, $connection);
     }
 
     /**
@@ -60,11 +61,11 @@ final readonly class SchedulesAccessor
      *
      * @return Collection<int, ScheduledTransition>
      */
-    public function due(?CarbonInterface $now = null, int $limit = 100): Collection
+    public function due(?CarbonInterface $now = null, int $limit = 100, ?string $connection = null): Collection
     {
         $now = $now === null ? Clock::now() : Clock::utc($now);
 
-        return $this->transitions(ScheduleModel::query()
+        return $this->transitions(ScheduleModel::query($connection)
             ->where('status', ScheduleStatus::Pending->value)
             ->where('due_at', '<=', Clock::format($now))
             ->orderBy('due_at')
@@ -78,9 +79,9 @@ final readonly class SchedulesAccessor
      *
      * @return Collection<int, ScheduledTransition>
      */
-    public function failed(int $limit = 100): Collection
+    public function failed(int $limit = 100, ?string $connection = null): Collection
     {
-        return $this->transitions(ScheduleModel::query()
+        return $this->transitions(ScheduleModel::query($connection)
             ->where('status', ScheduleStatus::Failed->value)
             ->orderByDesc('finished_at')
             ->orderByDesc('id')

@@ -387,7 +387,7 @@ final readonly class LifecycleHandle
             ->orderByDesc('id')
             ->first();
 
-        return $failed !== null && $this->manager->retrySchedule($failed->id);
+        return $failed !== null && $this->manager->retrySchedule($failed->id, $this->subject->getConnectionName());
     }
 
     /**

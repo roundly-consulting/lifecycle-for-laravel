@@ -51,16 +51,22 @@ final class ScheduleModel
     }
 
     /**
-     * Rows on the default connection — the sweep's view; package tables of subjects on
-     * other connections are swept by pointing the default at them.
+     * Rows on one connection (the default when null) — the sweep's view: package rows live on
+     * their subject's connection, so a subject on another connection is swept with
+     * `lifecycle:sweep --database=<connection>`.
      *
      * @return Builder<LifecycleSchedule>
      */
-    public static function query(): Builder
+    public static function query(?string $connection = null): Builder
     {
         $class = self::class();
+        $model = new $class;
 
-        return (new $class)->newQuery();
+        if ($connection !== null) {
+            $model->setConnection($connection);
+        }
+
+        return $model->newQuery();
     }
 
     /**

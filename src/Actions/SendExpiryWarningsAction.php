@@ -49,7 +49,7 @@ final readonly class SendExpiryWarningsAction
         $cursor = null;
 
         while ($done < $limit) {
-            $query = ScheduleModel::query()
+            $query = ScheduleModel::query($options->connection)
                 ->where('status', ScheduleStatus::Pending->value)
                 ->where('kind', ScheduleKind::Expiry->value)
                 ->whereNotNull('next_warn_at')

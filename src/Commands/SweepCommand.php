@@ -18,7 +18,8 @@ final class SweepCommand extends Command implements Isolatable
     protected $signature = 'lifecycle:sweep
         {--limit= : At most this many schedules (default: schedules.max_per_run)}
         {--queue : Dispatch one job per schedule instead of running them inline}
-        {--no-warnings : Skip the expiry warnings}';
+        {--no-warnings : Skip the expiry warnings}
+        {--database= : The database connection whose package tables to sweep (default: the default connection)}';
 
     protected $description = 'Run due lifecycle expiries, scheduled transitions and expiry warnings';
 
@@ -33,9 +34,11 @@ final class SweepCommand extends Command implements Isolatable
         }
 
         $queue = $this->option('queue') === true ? true : null;
+        $database = $this->option('database');
+        $database = is_string($database) && $database !== '' ? $database : null;
         $result = $this->option('no-warnings') === true
-            ? $lifecycle->schedules()->runDue($limit, $queue)
-            : $lifecycle->sweep($limit, $queue);
+            ? $lifecycle->schedules()->runDue($limit, $queue, $database)
+            : $lifecycle->sweep($limit, $queue, $database);
 
         $this->table(['warned', 'executed', 'deferred', 'failed', 'errored', 'cancelled', 'skipped', 'queued'], [[
             $result->warned, $result->executed, $result->deferred, $result->failed,

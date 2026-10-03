@@ -784,6 +784,7 @@ Lifecycles::schedules()->warn();                      // warnings only
 Lifecycles::schedules()->due();                       // Collection<ScheduledTransition>, read-only
 Lifecycles::schedules()->failed();                    // Collection<ScheduledTransition>, most recently failed first
 Lifecycles::schedules()->retry($scheduleId);          // failed → pending, attempts reset
+Lifecycles::sweep(connection: 'tenant');              // the package tables of another connection
 ```
 
 A `ScheduledTransition` says which subject it belongs to (`subjectType`, `subjectId`) and, once it
@@ -1053,12 +1054,12 @@ the fake fire nothing.
 | Command | What it does |
 |---|---|
 | `make:lifecycle {name} {--enum=} {--force}` | Generates a definition class in `App\Lifecycles`: a small valid example, or the cases of a backed enum as states (starting in the first case). `vendor:publish --tag=lifecycle-stubs` lets you edit the stubs. |
-| `lifecycle:sweep {--limit=} {--queue} {--no-warnings}` | Sends due warnings and runs due expiries and scheduled transitions. Isolatable. |
+| `lifecycle:sweep {--limit=} {--queue} {--no-warnings} {--database=}` | Sends due warnings and runs due expiries and scheduled transitions of one connection's package tables (the default, or `--database`). Isolatable. |
 | `lifecycle:graph {definition} {--format=mermaid\|dot} {--output=}` | Prints or writes a graph. `definition` is a definition class or `Model:attribute` (class name or morph alias). |
 | `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Without arguments: every lifecycle of every model in `lifecycle.subjects`. Warns when a definition has expiries or system transitions but `lifecycle:sweep` is not scheduled. Exit 1 on errors (or, with `--strict`, on warnings or when there is nothing to validate). |
 | `lifecycle:show {subject} {id} {--lifecycle=} {--history=10}` | One subject's state, entry time, version, freeze, expiry, what the system could do next, and recent history. |
 | `lifecycle:adopt {model} {--lifecycle=} {--chunk=500} {--no-expiry}` | Reconciles every row of a model (missing records, drift, `NULL` states). |
-| `lifecycle:prune {--history-days=} {--schedule-days=} {--dry-run}` | Deletes old history rows and finished schedules (defaults from config). |
+| `lifecycle:prune {--history-days=} {--schedule-days=} {--dry-run} {--database=}` | Deletes old history rows and finished schedules (defaults from config). |
 
 ### Testing with the fake
 
@@ -1120,7 +1121,8 @@ expiries.
 - **`check()` is advisory.** Between `check()` and `apply()`, someone else may act; `apply()` decides
   again under the lock.
 - **Same database.** The package writes its rows on the subject's connection, so its tables must
-  exist in that database.
+  exist in that database. A sweep covers one connection: schedule `lifecycle:sweep --database=<name>`
+  for models on another connection (`lifecycle:validate` warns when it is missing).
 - **MySQL/MariaDB.** Only a transaction that counts a quota — a transition or scheduled transition
   into a quota'd state, or a rollback on a definition with quotas — runs at READ COMMITTED, so the
   count after the quota lock sees the previous holder's commit. Everything else (creating a model,

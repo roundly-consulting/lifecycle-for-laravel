@@ -51,15 +51,20 @@ final class TransitionModel
     }
 
     /**
-     * Rows on the default connection (pruning).
+     * Rows on one connection (the default when null) — pruning.
      *
      * @return Builder<LifecycleTransition>
      */
-    public static function query(): Builder
+    public static function query(?string $connection = null): Builder
     {
         $class = self::class();
+        $model = new $class;
 
-        return (new $class)->newQuery();
+        if ($connection !== null) {
+            $model->setConnection($connection);
+        }
+
+        return $model->newQuery();
     }
 
     /**

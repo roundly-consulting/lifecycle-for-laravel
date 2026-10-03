@@ -423,9 +423,9 @@ final class LifecycleFake extends LifecycleManager
         return 0;
     }
 
-    public function retrySchedule(int $scheduleId): bool
+    public function retrySchedule(int $scheduleId, ?string $connection = null): bool
     {
-        $this->calls[] = new RecordedCall('retrySchedule', new RetriedSchedule($scheduleId), false);
+        $this->calls[] = new RecordedCall('retrySchedule', new RetriedSchedule($scheduleId, $connection), false);
 
         return false;
     }

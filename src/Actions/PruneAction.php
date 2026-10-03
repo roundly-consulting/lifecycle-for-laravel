@@ -32,10 +32,10 @@ final readonly class PruneAction
         $scheduleDays = $options->schedulesOlderThanDays ?? self::days('lifecycle.schedules.prune_after_days');
         $now = Clock::now();
 
-        $history = $historyDays === null ? null : TransitionModel::query()
+        $history = $historyDays === null ? null : TransitionModel::query($options->connection)
             ->where('occurred_at', '<', Clock::format($now->subDays($historyDays)));
 
-        $schedules = $scheduleDays === null ? null : self::keepRunningStayMarks(ScheduleModel::query()
+        $schedules = $scheduleDays === null ? null : self::keepRunningStayMarks(ScheduleModel::query($options->connection)
             ->whereNotIn('status', [ScheduleStatus::Pending->value, ScheduleStatus::Paused->value])
             ->whereNotNull('finished_at')
             ->where('finished_at', '<', Clock::format($now->subDays($scheduleDays))));
