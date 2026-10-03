@@ -247,7 +247,7 @@ final readonly class GuardPipeline
         $sealedAfter = $evaluation->definition->state($evaluation->fromKey())->sealedAfter;
 
         if (! $transition->ignoresSeal && $sealedAfter !== null
-            && $context->now->greaterThanOrEqualTo(Durations::add($record->entered_at, $sealedAfter))) {
+            && $context->now->greaterThanOrEqualTo(Durations::add($evaluation->enteredAt(), $sealedAfter))) {
             $denials[] = Denial::of(DenialCode::Sealed, $params, source: 'record');
         }
 
@@ -263,11 +263,6 @@ final readonly class GuardPipeline
     private function limits(Evaluation $evaluation): array
     {
         $record = $evaluation->record;
-
-        if ($record === null) {
-            return [];
-        }
-
         $context = $evaluation->context;
         $transition = $context->transition;
         $params = $this->params($evaluation);
@@ -275,15 +270,16 @@ final readonly class GuardPipeline
 
         $dwell = $evaluation->definition->state($evaluation->fromKey())->minDwell;
 
+        // Without a record yet, apply() creates one now: the stay — and so the dwell — starts now.
         if (! $context->system && ! $transition->ignoresMinDwell && $dwell !== null) {
-            $until = Durations::add($record->entered_at, $dwell);
+            $until = Durations::add($evaluation->enteredAt(), $dwell);
 
             if ($context->now->lessThan($until)) {
                 $denials[] = Denial::of(DenialCode::MinDwellNotReached, [...$params, 'at' => self::display($until)], retryAfter: $until, source: 'limit');
             }
         }
 
-        $last = CounterBook::lastAt($record->counters, $transition->name);
+        $last = CounterBook::lastAt($record?->counters, $transition->name);
 
         if (! $context->system && $transition->cooldown !== null && $last !== null) {
             $until = Durations::add($last, $transition->cooldown);
@@ -293,7 +289,7 @@ final readonly class GuardPipeline
             }
         }
 
-        if ($transition->maxOccurrences !== null && CounterBook::count($record->counters, $transition->name) >= $transition->maxOccurrences) {
+        if ($transition->maxOccurrences !== null && CounterBook::count($record?->counters, $transition->name) >= $transition->maxOccurrences) {
             $denials[] = Denial::of(DenialCode::MaxOccurrencesReached, [...$params, 'max' => $transition->maxOccurrences], source: 'limit');
         }
 

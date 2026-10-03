@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Engine;
 
+use Carbon\CarbonImmutable;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
@@ -37,5 +38,19 @@ final readonly class Evaluation
     public function fromKey(): string
     {
         return $this->definition->key($this->context->from);
+    }
+
+    /**
+     * When the subject entered its current state, as `apply()` will see it: in Apply mode the
+     * locked record (reconciled already); in Check mode a missing record or one that disagrees
+     * with the stored state is adopted by `apply()` first, which starts the stay now.
+     */
+    public function enteredAt(): CarbonImmutable
+    {
+        if ($this->record === null || ($this->mode === Mode::Check && $this->record->state !== $this->fromKey())) {
+            return $this->context->now;
+        }
+
+        return $this->record->entered_at;
     }
 }
