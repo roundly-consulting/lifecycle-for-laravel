@@ -194,3 +194,15 @@ it('records refused schedules under the fake', function (): void {
 
     $fake->assertScheduled($listing, 'expire');
 });
+
+it('does not count a refused schedule as scheduled', function (): void {
+    $fake = Lifecycles::fake();
+    $listing = Listing::factory()->create();
+
+    expect(fn () => Lifecycles::for($listing)->asSystem()->schedule('publish', CarbonImmutable::now()->addDay()))
+        ->toThrow(TransitionDeniedException::class);
+
+    $fake->assertNothingScheduled();
+
+    expect(fn () => $fake->assertScheduled($listing, 'publish'))->toThrow(ExpectationFailedException::class, 'to be scheduled for [publish]');
+});

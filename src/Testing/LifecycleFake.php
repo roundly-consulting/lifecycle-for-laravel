@@ -600,7 +600,7 @@ final class LifecycleFake extends LifecycleManager
 
     public function assertNothingScheduled(): void
     {
-        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'schedule'));
+        $count = count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === 'schedule' && $call->denied === null));
 
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be scheduled, but %d schedule(s) were recorded.', $count));
     }
@@ -776,7 +776,7 @@ final class LifecycleFake extends LifecycleManager
     }
 
     /**
-     * Recorded requests of one method for a subject (and lifecycle).
+     * Accepted (not refused) requests of one method for a subject (and lifecycle).
      *
      * @return list<object>
      */
@@ -787,7 +787,7 @@ final class LifecycleFake extends LifecycleManager
         foreach ($this->calls as $call) {
             $request = $call->request;
 
-            if ($call->method === $method && property_exists($request, 'subject') && $request->subject instanceof Model
+            if ($call->method === $method && $call->denied === null && property_exists($request, 'subject') && $request->subject instanceof Model
                 && $request->subject->is($subject)
                 && ($lifecycle === null || (property_exists($request, 'lifecycle') && $request->lifecycle === $lifecycle))) {
                 $requests[] = $request;
