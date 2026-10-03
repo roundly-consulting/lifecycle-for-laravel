@@ -30,10 +30,10 @@ final class InvalidLifecycleConfigurationException extends LifecycleException
         return new self(sprintf('The [%s] setting must be a list.', $key));
     }
 
-    public static function notADefinition(string $key, mixed $value): self
+    public static function notASubject(string $key, mixed $value): self
     {
         return new self(sprintf(
-            'Every entry of [%s] must be a LifecycleDefinition class, [%s] given.',
+            'Every entry of [%s] must be an Eloquent model class implementing LifecycleSubject, [%s] given.',
             $key,
             is_string($value) ? $value : get_debug_type($value),
         ));

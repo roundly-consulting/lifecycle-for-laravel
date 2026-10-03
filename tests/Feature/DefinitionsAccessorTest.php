@@ -8,8 +8,13 @@ use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationExceptio
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\Invalid\WarningsOnlyLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\ListingLifecycle;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\OrderLifecycle;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\PaymentLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\TicketLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\NotASubject;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Ticket;
 
 it('serves compiled definitions, reports and graphs', function (): void {
     $definitions = Lifecycles::definitions();
@@ -26,20 +31,25 @@ it('serves compiled definitions, reports and graphs', function (): void {
     expect(app(DefinitionRegistry::class)->get(ListingLifecycle::class))->not->toBe($compiled);
 });
 
-it('lists the registered definitions', function (): void {
-    expect(Lifecycles::definitions()->registered())->toBe([]);
+it('lists the configured subjects and their definitions', function (): void {
+    expect(Lifecycles::definitions()->subjects())->toBe([])
+        ->and(Lifecycles::definitions()->registered())->toBe([]);
 
-    config()->set('lifecycle.definitions', [ListingLifecycle::class, TicketLifecycle::class]);
+    config()->set('lifecycle.subjects', [Ticket::class, Order::class, Listing::class, Ticket::class]);
 
-    expect(Lifecycles::definitions()->registered())->toBe([ListingLifecycle::class, TicketLifecycle::class]);
+    expect(Lifecycles::definitions()->subjects())->toBe([Ticket::class, Order::class, Listing::class, Ticket::class])
+        ->and(Lifecycles::definitions()->registered())->toBe([TicketLifecycle::class, OrderLifecycle::class, PaymentLifecycle::class, ListingLifecycle::class]);
 });
 
-it('refuses a malformed definitions list', function (mixed $value, string $message): void {
-    config()->set('lifecycle.definitions', $value);
+it('refuses a malformed subjects list', function (mixed $value, string $message): void {
+    config()->set('lifecycle.subjects', $value);
 
-    expect(fn () => Lifecycles::definitions()->registered())->toThrow(InvalidLifecycleConfigurationException::class, $message);
+    expect(fn () => Lifecycles::definitions()->subjects())->toThrow(InvalidLifecycleConfigurationException::class, $message)
+        ->and(fn () => Lifecycles::definitions()->registered())->toThrow(InvalidLifecycleConfigurationException::class, $message);
 })->with([
-    'not a list' => ['nope', 'must be a list'],
-    'not a definition' => [[stdClass::class], 'must be a LifecycleDefinition class, [stdClass]'],
+    'not a list' => ['nope', 'The [lifecycle.subjects] setting must be a list.'],
+    'not a class' => [['App\\Models\\Missing'], 'must be an Eloquent model class implementing LifecycleSubject, [App\\Models\\Missing] given'],
+    'not a model' => [[ListingLifecycle::class], '['.ListingLifecycle::class.'] given'],
+    'a model that is not a subject' => [[NotASubject::class], '['.NotASubject::class.'] given'],
     'not a string' => [[42], '[int] given'],
 ]);

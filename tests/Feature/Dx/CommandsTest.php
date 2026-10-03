@@ -12,6 +12,7 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\ListingLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\TicketLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
 
 function artisan(string $command, array $parameters = []): array
 {
@@ -58,17 +59,59 @@ it('refuses an unknown format or target', function (array $parameters, string $m
     'definition' => [['definition' => stdClass::class], 'is not a RoundlyConsulting'],
 ]);
 
-it('validates the registered definitions, reporting every issue', function (): void {
-    expect(artisan('lifecycle:validate'))->toBe([0, "No lifecycle definitions to validate.\n"]);
+it('asks for subjects when there is nothing to validate', function (): void {
+    expect(artisan('lifecycle:validate'))->toBe([0, "No lifecycle subjects to validate — list your models in lifecycle.subjects.\n"]);
 
-    config()->set('lifecycle.definitions', [ListingLifecycle::class, WarningsOnlyLifecycle::class]);
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(1)
+        ->and($output)->toContain('No lifecycle subjects to validate — list your models in lifecycle.subjects.');
+});
+
+it('validates every lifecycle of the configured subjects, reporting every issue', function (): void {
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        baseLifecycle($l)->states(['a', 'b', 'c', 'orphan']);
+    });
+    config()->set('lifecycle.subjects', [Listing::class, Order::class, Document::class]);
     [$code, $output] = artisan('lifecycle:validate');
+
+    expect($code)->toBe(0)
+        ->and($output)->toContain(Listing::class.':status — 0 error(s), 0 warning(s)')
+        ->and($output)->toContain(Order::class.':status — 0 error(s)')
+        ->and($output)->toContain(Order::class.':payment_status — 0 error(s)')
+        ->and($output)->toContain(Document::class.':status — 0 error(s), 2 warning(s)')
+        ->and($output)->toContain('unreachable_state: The state "orphan" cannot be reached from the initial state.');
+
+    expect(artisan('lifecycle:validate', ['--strict' => true])[0])->toBe(1);
+});
+
+it('checks the columns of the configured subjects by default', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->stamps('signed_at'));
+    config()->set('lifecycle.subjects', [Document::class]);
+
+    [$code, $output] = artisan('lifecycle:validate');
+
+    expect($code)->toBe(1)
+        ->and($output)->toContain(Document::class.':status — 1 error(s), 0 warning(s)')
+        ->and($output)->toContain('names the column [signed_at]');
+});
+
+it('reports a malformed subjects list', function (): void {
+    config()->set('lifecycle.subjects', [ListingLifecycle::class]);
+
+    [$code, $output] = artisan('lifecycle:validate');
+
+    expect($code)->toBe(1)->and($output)->toContain('must be an Eloquent model class implementing LifecycleSubject');
+});
+
+it('validates named definitions, reporting every issue', function (): void {
+    [$code, $output] = artisan('lifecycle:validate', ['definition' => [ListingLifecycle::class, WarningsOnlyLifecycle::class]]);
 
     expect($code)->toBe(0)
         ->and($output)->toContain(ListingLifecycle::class.' — 0 error(s), 0 warning(s)')
         ->and($output)->toContain('unreachable_state: The state "orphan" cannot be reached from the initial state.');
 
-    expect(artisan('lifecycle:validate', ['--strict' => true])[0])->toBe(1);
+    expect(artisan('lifecycle:validate', ['definition' => [WarningsOnlyLifecycle::class], '--strict' => true])[0])->toBe(1);
 });
 
 it('fails on definition errors and unknown targets', function (): void {

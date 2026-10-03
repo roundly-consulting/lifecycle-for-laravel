@@ -55,7 +55,7 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 'Actor key type' => KeyType::fromConfig('lifecycle.actor_key_type')->value,
                 'Strict state writes' => Config::boolean('lifecycle.strict_writes', true) ? 'ON' : 'OFF',
                 'Actor from auth' => Config::boolean('lifecycle.actor.from_auth', true) ? 'ON' : 'OFF',
-                'Registered definitions' => (string) count(app(DefinitionsAccessor::class)->registered()),
+                'Registered subjects' => (string) count(app(DefinitionsAccessor::class)->subjects()),
                 'State model' => class_basename(StateModel::class()),
                 'History model' => class_basename(TransitionModel::class()),
                 'Schedule model' => class_basename(ScheduleModel::class()),

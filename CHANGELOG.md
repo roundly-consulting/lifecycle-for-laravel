@@ -15,7 +15,8 @@ Initial public release.
 - Definition classes with a fluent builder: backed-enum or string states, an initial state,
   terminal states, named transitions with several sources, a `*` wildcard and `fromAnyExcept()`,
   self-transitions, labels and metadata. Definitions are validated when compiled and by
-  `lifecycle:validate` (errors and warnings).
+  `lifecycle:validate` (errors, warnings and the columns a definition names), which checks every
+  model listed in `lifecycle.subjects`.
 - One guard pipeline for `can()`, `check()`, `allowedTransitions()` and `apply()`: Gate abilities,
   actor rules, system-only transitions, required reasons, payload validation with sensitive keys
   (a payload sent to a transition without `rules()` is refused, never silently dropped), custom

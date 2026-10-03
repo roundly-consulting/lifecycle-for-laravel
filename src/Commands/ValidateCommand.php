@@ -15,12 +15,14 @@ use RoundlyConsulting\Lifecycle\LifecycleManager;
 /**
  * Validates definitions: every error and warning, with its message. For `Model:attribute`
  * the columns the definition names (stamps, expiry attributes, quota scopes) must exist on
- * the model's table. Exits 1 on errors — or warnings with `--strict`.
+ * the model's table. Without arguments it validates every lifecycle of every model in
+ * `lifecycle.subjects`. Exits 1 on errors — or warnings with `--strict`, where nothing to
+ * validate counts as a failure too.
  */
 final class ValidateCommand extends Command
 {
     protected $signature = 'lifecycle:validate
-        {definition?* : Definition classes or Model:attribute (default: lifecycle.definitions)}
+        {definition?* : Definition classes or Model:attribute (default: every lifecycle of lifecycle.subjects)}
         {--strict : Fail on warnings too}';
 
     protected $description = 'Validate lifecycle definitions';
@@ -28,10 +30,25 @@ final class ValidateCommand extends Command
     public function handle(LifecycleManager $lifecycle, ResolvesLifecycleArguments $arguments, DefinitionRegistry $registry): int
     {
         $given = (array) $this->argument('definition');
-        $targets = $given !== [] ? array_map(strval(...), $given) : $lifecycle->definitions()->registered();
+
+        try {
+            $targets = $given !== [] ? array_map(strval(...), $given) : $this->subjectTargets($lifecycle, $registry);
+        } catch (LifecycleException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         if ($targets === []) {
-            $this->info('No lifecycle definitions to validate.');
+            $message = 'No lifecycle subjects to validate — list your models in lifecycle.subjects.';
+
+            if ($this->option('strict') === true) {
+                $this->error($message);
+
+                return self::FAILURE;
+            }
+
+            $this->info($message);
 
             return self::SUCCESS;
         }
@@ -66,6 +83,24 @@ final class ValidateCommand extends Command
         }
 
         return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * `Model:attribute` for every lifecycle of every configured subject.
+     *
+     * @return list<string>
+     */
+    private function subjectTargets(LifecycleManager $lifecycle, DefinitionRegistry $registry): array
+    {
+        $targets = [];
+
+        foreach ($lifecycle->definitions()->subjects() as $subject) {
+            foreach (array_keys($registry->definitionsOf($subject)) as $attribute) {
+                $targets[] = $subject.':'.$attribute;
+            }
+        }
+
+        return $targets;
     }
 
     /**

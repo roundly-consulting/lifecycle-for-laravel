@@ -356,6 +356,7 @@ it('renders the README graph and runs the definition helpers', function (): void
         ->and(Lifecycles::definitions()->of(new Listing)->class)->toBe(ListingLifecycle::class)
         ->and(Lifecycles::definitions()->validate(ListingLifecycle::class)->isValid())->toBeTrue()
         ->and(Lifecycles::definitions()->graph(ListingLifecycle::class, GraphFormat::Dot))->toStartWith('digraph')
+        ->and(Lifecycles::definitions()->subjects())->toBe([])
         ->and(Lifecycles::definitions()->registered())->toBe([]);
 });
 

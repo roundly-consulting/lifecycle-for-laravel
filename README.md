@@ -236,13 +236,13 @@ return [
         'schedule' => LifecycleSchedule::class,
     ],
 
-    'definitions' => [],
+    'subjects' => [],
 
     'strict_writes' => env('LIFECYCLE_STRICT_WRITES', true),
 
     'actor' => [
         'from_auth' => env('LIFECYCLE_ACTOR_FROM_AUTH', true),
-        'guard' => env('LIFECYCLE_AUTH_GUARD'),
+        'guard' => env('LIFECYCLE_ACTOR_GUARD'),
     ],
 
     'transactions' => [
@@ -251,15 +251,15 @@ return [
     ],
 
     'history' => [
-        'store_payload' => env('LIFECYCLE_STORE_PAYLOAD', true),
+        'store_payload' => env('LIFECYCLE_HISTORY_STORE_PAYLOAD', true),
         'max_context_bytes' => 16384,
         'reason_max_length' => 1000,
-        'purge_on_force_delete' => env('LIFECYCLE_PURGE_ON_FORCE_DELETE', true),
+        'purge_on_force_delete' => env('LIFECYCLE_HISTORY_PURGE_ON_FORCE_DELETE', true),
         'prune_after_days' => env('LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS'),
     ],
 
     'rollback' => [
-        'default_window' => env('LIFECYCLE_ROLLBACK_WINDOW'),
+        'default_window' => env('LIFECYCLE_ROLLBACK_DEFAULT_WINDOW'),
         'max_steps' => 50,
     ],
 
@@ -273,7 +273,7 @@ return [
             'connection' => env('LIFECYCLE_QUEUE_CONNECTION'),
             'name' => env('LIFECYCLE_QUEUE'),
         ],
-        'prune_after_days' => env('LIFECYCLE_SCHEDULE_PRUNE_AFTER_DAYS', 30),
+        'prune_after_days' => env('LIFECYCLE_SCHEDULES_PRUNE_AFTER_DAYS', 30),
     ],
 
     'rate_limits' => [
@@ -293,18 +293,18 @@ return [
 | `models.state` | class-string | `LifecycleState` | — | Swap the state-record model for your subclass. |
 | `models.transition` | class-string | `LifecycleTransition` | — | Swap the history model for your subclass. |
 | `models.schedule` | class-string | `LifecycleSchedule` | — | Swap the schedule model for your subclass. |
-| `definitions` | list of class-strings | `[]` | — | Definitions `lifecycle:validate` and `lifecycle:graph` use when you name none. Definitions work without being listed. |
+| `subjects` | list of model class-strings | `[]` | — | Your models with a lifecycle. `lifecycle:validate` without arguments checks every lifecycle of every listed model, including the columns its definition names. Models work without being listed. |
 | `strict_writes` | bool | `true` | `LIFECYCLE_STRICT_WRITES` | Saving a directly changed lifecycle attribute throws `DirectStateWriteException`. |
 | `actor.from_auth` | bool | `true` | `LIFECYCLE_ACTOR_FROM_AUTH` | With no `by()`, the authenticated user is the actor. |
-| `actor.guard` | ?string | `null` | `LIFECYCLE_AUTH_GUARD` | The auth guard for `from_auth` (`null` = the default guard). |
+| `actor.guard` | ?string | `null` | `LIFECYCLE_ACTOR_GUARD` | The auth guard for `from_auth` (`null` = the default guard). |
 | `transactions.attempts` | int 1–10 | `3` | — | How often a transaction is retried after a deadlock (only when the package opened the outermost transaction). |
 | `transactions.mysql_read_committed` | bool | `true` | `LIFECYCLE_MYSQL_READ_COMMITTED` | MySQL/MariaDB: a transaction that counts a quota runs at READ COMMITTED. Off: it keeps your isolation and the quota count takes locking reads. See [Concurrency and database notes](#concurrency-and-database-notes). |
-| `history.store_payload` | bool | `true` | `LIFECYCLE_STORE_PAYLOAD` | Keep the validated payload (minus `sensitive()` keys) in the history row. |
+| `history.store_payload` | bool | `true` | `LIFECYCLE_HISTORY_STORE_PAYLOAD` | Keep the validated payload (minus `sensitive()` keys) in the history row. |
 | `history.max_context_bytes` | int 1024–1048576 | `16384` | — | JSON size cap of the stored context; larger is refused as `invalid_payload`. |
 | `history.reason_max_length` | int 1–10000 | `1000` | — | Longer reasons are refused as `reason_too_long`. |
-| `history.purge_on_force_delete` | bool | `true` | `LIFECYCLE_PURGE_ON_FORCE_DELETE` | Force-deleting a subject deletes its records, history and schedules. |
+| `history.purge_on_force_delete` | bool | `true` | `LIFECYCLE_HISTORY_PURGE_ON_FORCE_DELETE` | Force-deleting a subject deletes its records, history and schedules. |
 | `history.prune_after_days` | ?int 1–36500 | `null` | `LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for history rows (`null` = never). Limits survive pruning; rollback points and idempotency keys older than the cutoff do not. |
-| `rollback.default_window` | ?interval | `null` | `LIFECYCLE_ROLLBACK_WINDOW` | How long a transition stays reversible when it declares no window (`"7 days"`; `null` = unlimited). |
+| `rollback.default_window` | ?interval | `null` | `LIFECYCLE_ROLLBACK_DEFAULT_WINDOW` | How long a transition stays reversible when it declares no window (`"7 days"`; `null` = unlimited). |
 | `rollback.max_steps` | int 1–1000 | `50` | — | Most rows one `rollbackTo()` may revert. |
 | `schedules.batch_size` | int 1–10000 | `500` | — | Rows per sweep batch. |
 | `schedules.max_per_run` | int 1–1000000 | `10000` | — | Most schedules one sweep run handles. |
@@ -313,7 +313,7 @@ return [
 | `schedules.queue.enabled` | bool | `false` | `LIFECYCLE_QUEUE_SWEEPS` | The sweep dispatches one job per due schedule instead of running it inline. |
 | `schedules.queue.connection` | ?string | `null` | `LIFECYCLE_QUEUE_CONNECTION` | Queue connection of those jobs. |
 | `schedules.queue.name` | ?string | `null` | `LIFECYCLE_QUEUE` | Queue name of those jobs. |
-| `schedules.prune_after_days` | ?int | `30` | `LIFECYCLE_SCHEDULE_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for finished schedule rows (`null` = never). |
+| `schedules.prune_after_days` | ?int | `30` | `LIFECYCLE_SCHEDULES_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for finished schedule rows (`null` = never). |
 | `rate_limits.prefix` | string | `lifecycle` | — | Prefix of the rate-limiter keys of `rateLimit()` transitions. |
 | `graph.default_format` | `mermaid`\|`dot` | `mermaid` | — | Graph format when none is given. |
 
@@ -389,8 +389,10 @@ Durations are `CarbonInterval`, `DateInterval` or strings such as `'30 days'`. M
 overflow (31 January + 1 month = 28 February), and days are exact (30 days = 720 hours across a
 daylight-saving change). All package timestamps are stored in UTC.
 
-Run `php artisan lifecycle:validate` in CI: it lists every error **and** warning (unreachable
-states, dead ends, ambiguous targets, handlers that make a transition irreversible).
+Run `php artisan lifecycle:validate --strict` in CI: it lists every error **and** warning
+(unreachable states, dead ends, ambiguous targets, handlers that make a transition irreversible)
+and checks that the columns a definition names exist. List your models in `lifecycle.subjects` so
+it has something to check: with nothing listed, `--strict` fails instead of passing vacuously.
 
 ### Making a model a subject
 
@@ -838,7 +840,8 @@ Lifecycles::definitions()->get(ListingLifecycle::class);       // CompiledDefini
 Lifecycles::definitions()->of($listing);                       // the definition of a model's lifecycle
 Lifecycles::definitions()->validate(ListingLifecycle::class);  // ValidationReport: isValid(), errors(), warnings()
 Lifecycles::definitions()->graph(ListingLifecycle::class, GraphFormat::Dot);
-Lifecycles::definitions()->registered();                       // config('lifecycle.definitions')
+Lifecycles::definitions()->subjects();                         // config('lifecycle.subjects')
+Lifecycles::definitions()->registered();                       // the definitions of those subjects
 ```
 
 ```mermaid
@@ -971,7 +974,7 @@ the fake fire nothing.
 |---|---|
 | `lifecycle:sweep {--limit=} {--queue} {--no-warnings}` | Sends due warnings and runs due expiries and scheduled transitions. Isolatable. |
 | `lifecycle:graph {definition} {--format=mermaid\|dot} {--output=}` | Prints or writes a graph. `definition` is a definition class or `Model:attribute` (class name or morph alias). |
-| `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Exit 1 on errors (or warnings with `--strict`). |
+| `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Without arguments: every lifecycle of every model in `lifecycle.subjects`. Exit 1 on errors (or, with `--strict`, on warnings or when there is nothing to validate). |
 | `lifecycle:show {subject} {id} {--lifecycle=} {--history=10}` | One subject's state, entry time, version, freeze, expiry, what the system could do next, and recent history. |
 | `lifecycle:adopt {model} {--lifecycle=} {--chunk=500} {--no-expiry}` | Reconciles every row of a model (missing records, drift, `NULL` states). |
 | `lifecycle:prune {--history-days=} {--schedule-days=} {--dry-run}` | Deletes old history rows and finished schedules (defaults from config). |

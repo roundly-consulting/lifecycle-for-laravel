@@ -42,15 +42,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Registered definitions
+    | Subjects
     |--------------------------------------------------------------------------
     |
-    | Definition classes `lifecycle:validate` and `lifecycle:graph` work on when
-    | none is named. Definitions are used without being listed here.
+    | Your models with a lifecycle (classes implementing LifecycleSubject).
+    | `php artisan lifecycle:validate` checks every lifecycle of every model
+    | listed here, including the columns its definition names. Models work
+    | without being listed; list them so CI validates something.
     |
     */
 
-    'definitions' => [],
+    'subjects' => [],
 
     /*
     |--------------------------------------------------------------------------
@@ -78,7 +80,7 @@ return [
 
     'actor' => [
         'from_auth' => env('LIFECYCLE_ACTOR_FROM_AUTH', true),
-        'guard' => env('LIFECYCLE_AUTH_GUARD'),
+        'guard' => env('LIFECYCLE_ACTOR_GUARD'),
     ],
 
     /*
@@ -115,10 +117,10 @@ return [
     */
 
     'history' => [
-        'store_payload' => env('LIFECYCLE_STORE_PAYLOAD', true),
+        'store_payload' => env('LIFECYCLE_HISTORY_STORE_PAYLOAD', true),
         'max_context_bytes' => 16384,
         'reason_max_length' => 1000,
-        'purge_on_force_delete' => env('LIFECYCLE_PURGE_ON_FORCE_DELETE', true),
+        'purge_on_force_delete' => env('LIFECYCLE_HISTORY_PURGE_ON_FORCE_DELETE', true),
         'prune_after_days' => env('LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS'),
     ],
 
@@ -135,7 +137,7 @@ return [
     */
 
     'rollback' => [
-        'default_window' => env('LIFECYCLE_ROLLBACK_WINDOW'),
+        'default_window' => env('LIFECYCLE_ROLLBACK_DEFAULT_WINDOW'),
         'max_steps' => 50,
     ],
 
@@ -164,7 +166,7 @@ return [
             'connection' => env('LIFECYCLE_QUEUE_CONNECTION'),
             'name' => env('LIFECYCLE_QUEUE'),
         ],
-        'prune_after_days' => env('LIFECYCLE_SCHEDULE_PRUNE_AFTER_DAYS', 30),
+        'prune_after_days' => env('LIFECYCLE_SCHEDULES_PRUNE_AFTER_DAYS', 30),
     ],
 
     /*

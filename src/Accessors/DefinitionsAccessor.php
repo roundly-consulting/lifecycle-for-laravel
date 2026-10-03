@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Accessors;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Contracts\LifecycleSubject;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleDefinition;
@@ -15,7 +16,8 @@ use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationExceptio
 use RoundlyConsulting\Lifecycle\Graph\GraphExporter;
 
 /**
- * `Lifecycles::definitions()`: compiled definitions, validation reports and graphs.
+ * `Lifecycles::definitions()`: compiled definitions, validation reports, graphs and the
+ * configured subjects.
  */
 final readonly class DefinitionsAccessor
 {
@@ -65,26 +67,47 @@ final readonly class DefinitionsAccessor
     }
 
     /**
-     * The definitions listed in `lifecycle.definitions`.
+     * The models listed in `lifecycle.subjects`, in config order.
+     *
+     * @return list<class-string<Model&LifecycleSubject>>
+     */
+    public function subjects(): array
+    {
+        $subjects = config('lifecycle.subjects', []);
+
+        if (! is_array($subjects)) {
+            throw InvalidLifecycleConfigurationException::notAList('lifecycle.subjects');
+        }
+
+        $listed = [];
+
+        foreach ($subjects as $subject) {
+            if (! is_string($subject) || ! is_subclass_of($subject, Model::class) || ! is_subclass_of($subject, LifecycleSubject::class)) {
+                throw InvalidLifecycleConfigurationException::notASubject('lifecycle.subjects', $subject);
+            }
+
+            $listed[] = $subject;
+        }
+
+        return $listed;
+    }
+
+    /**
+     * The definition classes behind every lifecycle of the configured subjects, each once, in
+     * config order.
      *
      * @return list<class-string<LifecycleDefinition>>
      */
     public function registered(): array
     {
-        $definitions = config('lifecycle.definitions', []);
-
-        if (! is_array($definitions)) {
-            throw InvalidLifecycleConfigurationException::notAList('lifecycle.definitions');
-        }
-
         $registered = [];
 
-        foreach ($definitions as $definition) {
-            if (! is_string($definition) || ! is_subclass_of($definition, LifecycleDefinition::class)) {
-                throw InvalidLifecycleConfigurationException::notADefinition('lifecycle.definitions', $definition);
+        foreach ($this->subjects() as $subject) {
+            foreach ($this->registry()->definitionsOf($subject) as $definition) {
+                if (! in_array($definition, $registered, true)) {
+                    $registered[] = $definition;
+                }
             }
-
-            $registered[] = $definition;
         }
 
         return $registered;

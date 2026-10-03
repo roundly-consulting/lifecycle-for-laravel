@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
+
 /**
  * The `php artisan about` section, pinned with testing-for-laravel's render check: it proves
  * the capture is not empty before anything else is trusted. The rows report presence and
@@ -14,7 +17,7 @@ it('renders its about section', function (): void {
         'Actor key type',
         'Strict state writes', 'ON',
         'Actor from auth',
-        'Registered definitions',
+        'Registered subjects', '0',
         'State model', 'LifecycleState',
         'History model', 'LifecycleTransition',
         'Schedule model', 'LifecycleSchedule',
@@ -41,4 +44,10 @@ it('reports the MySQL quota isolation', function (): void {
     config()->set('lifecycle.transactions.mysql_read_committed', false);
 
     expect('lifecycle')->toLeakNoSecrets([], mustRender: ['MySQL quota isolation', 'locking reads']);
+});
+
+it('counts the configured subjects', function (): void {
+    config()->set('lifecycle.subjects', [Listing::class, Order::class]);
+
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Registered subjects', '2']);
 });
