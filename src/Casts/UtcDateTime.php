@@ -17,6 +17,8 @@ use Throwable;
  * application timezone, and read back as a UTC CarbonImmutable.
  *
  * @implements CastsAttributes<CarbonImmutable, DateTimeInterface|string>
+ *
+ * @internal
  */
 final class UtcDateTime implements CastsAttributes
 {

@@ -9,6 +9,8 @@ use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 /**
  * Graphviz DOT output: rounded boxes, a point for the start, dashed system-only edges and
  * double-bordered terminal states. Ids and labels are quoted with `"` and `\` escaped.
+ *
+ * @internal
  */
 final readonly class DotRenderer
 {

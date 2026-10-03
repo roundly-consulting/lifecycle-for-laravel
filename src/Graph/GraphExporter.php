@@ -12,6 +12,8 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 /**
  * Renders a compiled definition as a Mermaid state diagram or a DOT graph. Output is
  * deterministic: declaration order, wildcards expanded.
+ *
+ * @internal
  */
 final readonly class GraphExporter
 {

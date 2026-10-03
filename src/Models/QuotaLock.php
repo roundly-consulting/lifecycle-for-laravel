@@ -19,6 +19,8 @@ use RoundlyConsulting\Lifecycle\Database\Factories\QuotaLockFactory;
  * @property string $quota
  * @property string $scope_key
  * @property CarbonInterface|null $created_at
+ *
+ * @internal
  */
 final class QuotaLock extends Model
 {

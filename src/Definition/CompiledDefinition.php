@@ -26,6 +26,7 @@ final readonly class CompiledDefinition
      */
     public function __construct(
         public string $class,
+        /** @internal read states through key(), decode(), encode() and value() */
         public StateCodec $codec,
         public array $states,
         public string $initial,

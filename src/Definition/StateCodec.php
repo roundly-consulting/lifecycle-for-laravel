@@ -11,6 +11,8 @@ use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
  * Translates between raw attribute values, enum cases and state keys. A state key is the
  * string form of the raw backing value — an int-backed `3` is stored as `'3'` in history,
  * schedules and records and decoded back to the case.
+ *
+ * @internal
  */
 final readonly class StateCodec
 {

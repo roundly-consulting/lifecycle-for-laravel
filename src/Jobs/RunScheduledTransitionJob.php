@@ -15,6 +15,8 @@ use RoundlyConsulting\Lifecycle\Support\Clock;
  * Runs one due schedule on a queue (queued sweeps). One try: the action does its own
  * attempt accounting, so a failure is retried by a later sweep, never re-dispatched in a loop.
  * The unique lock is taken by the sweep itself before dispatching.
+ *
+ * @internal
  */
 final class RunScheduledTransitionJob implements ShouldBeUnique, ShouldQueue
 {

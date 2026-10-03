@@ -11,6 +11,8 @@ use RoundlyConsulting\Lifecycle\Support\Durations;
 /**
  * `stateDiagram-v2` output. State ids are `s{n}` in declaration order; labels are escaped
  * (`"` → `#quot;`, newlines → space); `⚙` marks system-only transitions.
+ *
+ * @internal
  */
 final readonly class MermaidRenderer
 {

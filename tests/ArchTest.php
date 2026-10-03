@@ -2,12 +2,22 @@
 
 declare(strict_types=1);
 
+use Casts\UtcDateTime;
+use Definition\StateCodec;
+use Graph\DotRenderer;
+use Graph\GraphExporter;
+use Graph\MermaidRenderer;
+use Jobs\RunScheduledTransitionJob;
+use Models\QuotaLock;
+use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Tests\Support\SourceScan;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
+use Support\Isolation;
+use Support\SweepSchedule;
 
 /**
  * Every arch preset this package's shape qualifies for — models, swap seams, morph
@@ -126,4 +136,27 @@ it('marks every engine class @internal', function (): void {
 
     expect(count($files))->toBeGreaterThan(10)
         ->and($public)->toBe([]);
+});
+
+it('marks the plumbing classes outside Engine and Support @internal', function (): void {
+    $plumbing = [
+        GraphExporter::class,
+        MermaidRenderer::class,
+        DotRenderer::class,
+        StateCodec::class,
+        QuotaLock::class,
+        RunScheduledTransitionJob::class,
+        UtcDateTime::class,
+        SweepSchedule::class,
+        Isolation::class,
+    ];
+    $public = array_values(array_filter(
+        $plumbing,
+        static fn (string $class): bool => ! str_contains((string) (new ReflectionClass('RoundlyConsulting\\Lifecycle\\'.$class))->getDocComment(), '@internal'),
+    ));
+    $codec = (string) (new ReflectionProperty(CompiledDefinition::class, 'codec'))->getDocComment();
+
+    expect($plumbing)->toHaveCount(9)
+        ->and($public)->toBe([])
+        ->and($codec)->toContain('@internal');
 });
