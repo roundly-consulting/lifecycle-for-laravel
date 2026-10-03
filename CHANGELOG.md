@@ -21,7 +21,7 @@ Initial public release.
   actor rules, system-only transitions, required reasons, payload validation with sensitive keys
   (a payload sent to a transition without `rules()` is refused, never silently dropped), custom
   guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a structured,
-  translated `Denial`.
+  translated `Denial` — including `subject_trashed` for a soft-deleted model.
 - Limits: maximum occurrences, cooldowns, minimum time in a state, per-actor or per-subject rate
   limits and race-free quotas per scope column, with a fixed or per-subject maximum.
 - Transactions with a subject row lock and a compare-and-swap state write, optimistic versions
@@ -35,7 +35,8 @@ Initial public release.
   `effectiveState()`.
 - Scheduled transitions and a `lifecycle:sweep` command that runs warnings, expiries and schedules
   in batches, inline or as unique queued jobs, with retries, deferral while frozen and isolated
-  errors. `php artisan about` and `lifecycle:validate` say when the sweep is not scheduled.
+  errors — per database connection (`--database`, `sweep(connection: …)`) for models that live on
+  another connection, which `lifecycle:validate` checks are swept. `php artisan about` and `lifecycle:validate` say when the sweep is not scheduled.
   `Lifecycles::schedules()->due()` / `failed()` list schedules with their subject and outcome;
   `schedules()->retry($id)` and `for($model)->retryScheduled($transition)` put a failed one back.
 - Rollbacks: undo the last transition or roll back to a history point (`canRollback()` /
