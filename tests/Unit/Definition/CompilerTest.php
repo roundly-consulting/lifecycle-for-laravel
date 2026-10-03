@@ -239,3 +239,18 @@ it('returns the same builder for the same state', function (): void {
     expect($builder->state('a'))->toBe($builder->state('a'))
         ->and($builder->state(ListingStatus::Draft))->toBe($builder->state('draft'));
 });
+
+it('tells whether a definition or a call target counts quotas', function (): void {
+    $definition = compileLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->quota(2, 'user_id'));
+    $plain = compileLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l));
+
+    expect($definition->hasQuotas())->toBeTrue()
+        ->and($plain->hasQuotas())->toBeFalse()
+        ->and($definition->quotasOnTarget('go', null))->toBeTrue()
+        ->and($definition->quotasOnTarget('finish', null))->toBeFalse()
+        ->and($definition->quotasOnTarget(null, 'b'))->toBeTrue()
+        ->and($definition->quotasOnTarget(null, 'c'))->toBeFalse()
+        ->and($definition->quotasOnTarget('nope', null))->toBeFalse()
+        ->and($definition->quotasOnTarget(null, 'nope'))->toBeFalse()
+        ->and($plain->quotasOnTarget('go', null))->toBeFalse();
+});

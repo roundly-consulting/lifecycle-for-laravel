@@ -85,7 +85,11 @@ final readonly class RunScheduledTransitionAction
                 return ScheduleRun::Skipped;
             }
 
-            return Transactions::run($subject, fn (): ScheduleRun => $this->run($subject, $scheduleId, $schedule->lifecycle, $now));
+            return Transactions::run(
+                $subject,
+                fn (): ScheduleRun => $this->run($subject, $scheduleId, $schedule->lifecycle, $now),
+                countsQuotas: $this->registry->of($subject, $schedule->lifecycle)->quotasOnTarget($schedule->transition, null),
+            );
         } catch (Throwable $exception) {
             $this->exceptions->report($exception);
 

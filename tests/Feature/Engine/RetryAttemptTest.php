@@ -37,7 +37,7 @@ it('retries a deadlocked attempt from the restore point', function (): void {
 });
 
 it('gives up after the configured attempts', function (): void {
-    config()->set('lifecycle.transaction_attempts', 2);
+    config()->set('lifecycle.transactions.attempts', 2);
     $listing = Listing::factory()->create();
     $attempts = 0;
 

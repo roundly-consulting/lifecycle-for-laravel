@@ -23,7 +23,10 @@ Initial public release.
 - Limits: maximum occurrences, cooldowns, minimum time in a state, per-actor or per-subject rate
   limits and race-free quotas per scope column, with a fixed or per-subject maximum.
 - Transactions with a subject row lock and a compare-and-swap state write, optimistic versions
-  (`expectingVersion()`), idempotency keys, deadlock retries and after-commit events.
+  (`expectingVersion()`), idempotency keys, deadlock retries and after-commit events. On
+  MySQL/MariaDB only a transaction that counts a quota runs at READ COMMITTED
+  (`transactions.mysql_read_committed` opts out to locking reads); a `binlog_format=STATEMENT`
+  server gets a configuration error that names the fix.
 - Transition handlers, `onEnter` / `onExit` hooks, timestamp stamps and attribute snapshots.
 - Expiry per state from an interval, a closure or a datetime column, with grace periods, warnings
   that fire once per lead, `extend()`, `renew()`, `expireAt()` and `neverExpire()`, plus

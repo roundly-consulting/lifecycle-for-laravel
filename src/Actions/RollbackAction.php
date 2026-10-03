@@ -47,6 +47,7 @@ final readonly class RollbackAction
         $restore = RestorePoint::capture($subject);
 
         try {
+            // The state a rollback ends in is known only after planning: any quota may be counted.
             $result = Transactions::run($subject, function () use ($subject, $request, $definition, $actor, $restore): RollbackResult {
                 $restore->restore();
                 $this->locker->lock($subject);
@@ -59,7 +60,7 @@ final readonly class RollbackAction
                 }
 
                 return $this->executor->execute($plan, $subject, $request->lifecycle, $definition, $record, $request, $actor);
-            });
+            }, countsQuotas: $definition->hasQuotas());
         } catch (Throwable $exception) {
             $restore->restore();
 

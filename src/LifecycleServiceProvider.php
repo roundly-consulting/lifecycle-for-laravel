@@ -15,6 +15,7 @@ use RoundlyConsulting\Lifecycle\Commands\ValidateCommand;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Graph\GraphExporter;
+use RoundlyConsulting\Lifecycle\Support\Isolation;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
@@ -61,6 +62,7 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 'Schedule batch size' => (string) Config::using(InvalidLifecycleConfigurationException::class)
                     ->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500),
                 'Queued sweeps' => Config::boolean('lifecycle.schedules.queue.enabled') ? 'ON' : 'OFF',
+                'MySQL quota isolation' => Config::boolean('lifecycle.transactions.mysql_read_committed', true) ? 'READ COMMITTED' : 'locking reads',
                 'History pruning' => ($days = PruneAction::days('lifecycle.history.prune_after_days')) === null ? 'OFF' : $days.' days',
             ]);
     }
@@ -72,8 +74,10 @@ final class LifecycleServiceProvider extends PackageServiceProvider
         $this->app->singleton(LifecycleManager::class);
         // Holds only immutable compiled definitions, so it may outlive a request (Octane).
         $this->app->singleton(DefinitionRegistry::class);
-        // allowDirectWrites() and the engine's write marker live per request / job.
+        // allowDirectWrites(), the engine's write marker and the READ COMMITTED marker live
+        // per request / job.
         $this->app->scoped(WriteGuard::class);
+        $this->app->scoped(Isolation::class);
     }
 
     public function boot(): void

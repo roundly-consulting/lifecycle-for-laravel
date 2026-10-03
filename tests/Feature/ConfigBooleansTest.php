@@ -32,3 +32,11 @@ it('reads schedules.queue.enabled as a boolean', function (string|bool $value, b
 
     expect(Artisan::output())->toMatch('/Queued sweeps\W+'.($expected ? 'ON' : 'OFF').'\b/');
 })->with('booleans');
+
+it('reads transactions.mysql_read_committed as a boolean', function (string|bool $value, bool $expected): void {
+    config()->set('lifecycle.transactions.mysql_read_committed', $value);
+
+    Artisan::call('about', ['--only' => 'lifecycle']);
+
+    expect(Artisan::output())->toMatch('/MySQL quota isolation\W+'.($expected ? 'READ COMMITTED' : 'locking reads').'\b/');
+})->with('booleans');

@@ -14,6 +14,7 @@ use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\QuotaScopeException;
 use RoundlyConsulting\Lifecycle\Models\QuotaLock;
+use RoundlyConsulting\Lifecycle\Support\Isolation;
 use RoundlyConsulting\Lifecycle\Support\LockedRow;
 use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 use RoundlyConsulting\PackageToolkit\Enums\DatabaseDriver;
@@ -21,14 +22,19 @@ use RoundlyConsulting\PackageToolkit\Enums\DatabaseDriver;
 /**
  * Row 18: race-free quotas. Under the subject lock, entering a quota'd state first takes the
  * partition's mutex row (quota name order), then counts the other subjects already in the
- * state. On pgsql (READ COMMITTED) and sqlite the count is a plain, later statement — its
- * snapshot includes the previous mutex holder's commit; on MySQL/MariaDB it is a locking
+ * state. On pgsql (READ COMMITTED), sqlite and a MySQL/MariaDB transaction the package
+ * switched to READ COMMITTED the count is a plain, later statement — its snapshot includes
+ * the previous mutex holder's commit; in any other MySQL/MariaDB transaction it is a locking
  * (current) read, since a REPEATABLE READ snapshot may predate that commit.
  *
  * @internal
  */
 final readonly class QuotaGate
 {
+    public function __construct(
+        private Isolation $isolation,
+    ) {}
+
     /**
      * @return list<Denial>
      */
@@ -96,7 +102,11 @@ final readonly class QuotaGate
                     'scope_key' => $key,
                 ]);
 
-                $locksCount = self::countTakesLocks(DatabaseDriver::tryFrom($connection->getDriverName()), $connection->transactionLevel());
+                $locksCount = self::countTakesLocks(
+                    DatabaseDriver::tryFrom($connection->getDriverName()),
+                    $connection->transactionLevel(),
+                    $this->isolation->readsCommitted($connection->getName() ?? ''),
+                );
             }
 
             $query = $this->partition($subject, $lifecycle, $definition->encode($target->key), $values)
@@ -116,16 +126,17 @@ final readonly class QuotaGate
 
     /**
      * A plain statement after the mutex reads the previous holder's commit on pgsql (READ
-     * COMMITTED), sqlite (serialised writers) and MySQL/MariaDB inside a transaction the
-     * package opened (switched to READ COMMITTED, see Support\Transactions). Nested in a host's
-     * MySQL transaction (REPEATABLE READ: the snapshot may predate that commit), or on an
-     * unknown engine, the count is a locking (current) read. Never an aggregate under FOR UPDATE.
+     * COMMITTED), sqlite (serialised writers) and MySQL/MariaDB directly inside a transaction
+     * the package switched to READ COMMITTED (Support\Transactions). Fail-safe: any other
+     * MySQL/MariaDB transaction — the opt-out, a host transaction, a caller that did not
+     * switch — and an unknown engine count with a locking (current) read, never a possibly
+     * stale plain one. Never an aggregate under FOR UPDATE.
      */
-    public static function countTakesLocks(?DatabaseDriver $driver, int $transactionLevel): bool
+    public static function countTakesLocks(?DatabaseDriver $driver, int $transactionLevel, bool $readCommitted): bool
     {
         return match ($driver) {
             DatabaseDriver::Pgsql, DatabaseDriver::Sqlite => false,
-            DatabaseDriver::Mysql, DatabaseDriver::Mariadb => $transactionLevel > 1,
+            DatabaseDriver::Mysql, DatabaseDriver::Mariadb => ! ($readCommitted && $transactionLevel === 1),
             null => true,
         };
     }

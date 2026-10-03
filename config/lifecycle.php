@@ -86,12 +86,19 @@ return [
     | Transactions
     |--------------------------------------------------------------------------
     |
-    | How often a transition is retried after a deadlock (1..10). Retries only
-    | happen when the package opened the outermost transaction.
+    | `attempts`: how often a transaction is retried after a deadlock (1..10);
+    | retries only happen when the package opened the outermost transaction.
+    | `mysql_read_committed`: on MySQL/MariaDB, a transaction that counts a
+    | quota runs at READ COMMITTED (it needs row-based or mixed binary logging).
+    | Off: it keeps your isolation and the quota count takes locking reads
+    | (never over the quota; bursts into one partition may deadlock and retry).
     |
     */
 
-    'transaction_attempts' => 3,
+    'transactions' => [
+        'attempts' => 3,
+        'mysql_read_committed' => env('LIFECYCLE_MYSQL_READ_COMMITTED', true),
+    ],
 
     /*
     |--------------------------------------------------------------------------

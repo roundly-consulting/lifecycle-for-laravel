@@ -20,6 +20,7 @@ it('renders its about section', function (): void {
         'Schedule model', 'LifecycleSchedule',
         'Schedule batch size', '500',
         'Queued sweeps', 'OFF',
+        'MySQL quota isolation', 'READ COMMITTED',
         'History pruning', 'OFF',
     ]);
 });
@@ -34,4 +35,10 @@ it('reports the history retention', function (): void {
     config()->set('lifecycle.history.prune_after_days', '90');
 
     expect('lifecycle')->toLeakNoSecrets([], mustRender: ['History pruning', '90 days']);
+});
+
+it('reports the MySQL quota isolation', function (): void {
+    config()->set('lifecycle.transactions.mysql_read_committed', false);
+
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['MySQL quota isolation', 'locking reads']);
 });

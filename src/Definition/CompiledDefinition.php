@@ -170,6 +170,31 @@ final readonly class CompiledDefinition
     }
 
     /**
+     * Whether any state declares a quota.
+     */
+    public function hasQuotas(): bool
+    {
+        foreach ($this->states as $state) {
+            if ($state->quotas !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the target of a call — the named transition's `to` state, else the target state —
+     * declares a quota. An unknown name or state is `false`: the call is refused structurally.
+     */
+    public function quotasOnTarget(?string $transition, mixed $target): bool
+    {
+        $key = $transition !== null ? $this->transition($transition)?->to : $this->codec->tryKey($target);
+
+        return $key !== null && $this->state($key)->quotas !== [];
+    }
+
+    /**
      * Every state that declares an expiry, keyed by nothing (declaration order).
      *
      * @return list<StateDefinition>

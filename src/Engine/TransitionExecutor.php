@@ -125,7 +125,7 @@ final readonly class TransitionExecutor
                 }
 
                 return $this->perform($evaluation, $record, TransitionKind::Transition, $request->idempotencyKey);
-            });
+            }, countsQuotas: $definition->quotasOnTarget($request->transition, $request->target));
         } catch (TransitionDeniedException $exception) {
             $restore->restore();
             $this->events->dispatch(new LifecycleTransitionDenied(

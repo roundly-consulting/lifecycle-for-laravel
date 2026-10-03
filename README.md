@@ -243,7 +243,10 @@ return [
         'guard' => env('LIFECYCLE_AUTH_GUARD'),
     ],
 
-    'transaction_attempts' => 3,
+    'transactions' => [
+        'attempts' => 3,
+        'mysql_read_committed' => env('LIFECYCLE_MYSQL_READ_COMMITTED', true),
+    ],
 
     'history' => [
         'store_payload' => env('LIFECYCLE_STORE_PAYLOAD', true),
@@ -292,7 +295,8 @@ return [
 | `strict_writes` | bool | `true` | `LIFECYCLE_STRICT_WRITES` | Saving a directly changed lifecycle attribute throws `DirectStateWriteException`. |
 | `actor.from_auth` | bool | `true` | `LIFECYCLE_ACTOR_FROM_AUTH` | With no `by()`, the authenticated user is the actor. |
 | `actor.guard` | ?string | `null` | `LIFECYCLE_AUTH_GUARD` | The auth guard for `from_auth` (`null` = the default guard). |
-| `transaction_attempts` | int 1–10 | `3` | — | How often a transition is retried after a deadlock (only when the package opened the outermost transaction). |
+| `transactions.attempts` | int 1–10 | `3` | — | How often a transaction is retried after a deadlock (only when the package opened the outermost transaction). |
+| `transactions.mysql_read_committed` | bool | `true` | `LIFECYCLE_MYSQL_READ_COMMITTED` | MySQL/MariaDB: a transaction that counts a quota runs at READ COMMITTED. Off: it keeps your isolation and the quota count takes locking reads. See [Concurrency and database notes](#concurrency-and-database-notes). |
 | `history.store_payload` | bool | `true` | `LIFECYCLE_STORE_PAYLOAD` | Keep the validated payload (minus `sensitive()` keys) in the history row. |
 | `history.max_context_bytes` | int 1024–1048576 | `16384` | — | JSON size cap of the stored context; larger is refused as `invalid_payload`. |
 | `history.reason_max_length` | int 1–10000 | `1000` | — | Longer reasons are refused as `reason_too_long`. |
@@ -1009,13 +1013,21 @@ expiries.
   again under the lock.
 - **Same database.** The package writes its rows on the subject's connection, so its tables must
   exist in that database.
-- **MySQL/MariaDB.** Transactions the package opens run at READ COMMITTED, so quota counts see the
-  previous lock holder's commit. Such hosts need row-based (or mixed) binary logging; READ COMMITTED
-  refuses `binlog_format=STATEMENT`. Inside your own transaction, your isolation level stays and
-  quota counts use locking reads. Index the state column together with the quota scope columns.
+- **MySQL/MariaDB.** Only a transaction that counts a quota — a transition or scheduled transition
+  into a quota'd state, or a rollback on a definition with quotas — runs at READ COMMITTED, so the
+  count after the quota lock sees the previous holder's commit. Everything else (creating a model,
+  other transitions, freezes, schedules, expiry changes, adoption) keeps your isolation level.
+  Handlers, hooks and listeners of a quota'd transition run inside that READ COMMITTED transaction.
+  READ COMMITTED needs row-based or mixed binary logging: with `binlog_format=STATEMENT` a quota'd
+  transition throws `InvalidLifecycleConfigurationException` naming the fix. Set
+  `transactions.mysql_read_committed` to `false` (`LIFECYCLE_MYSQL_READ_COMMITTED=false`) to keep
+  your isolation for quotas too: the count then takes locking reads, which never admit more than
+  the quota but can deadlock under bursts into one scope (retried, then thrown). Inside your own
+  transaction your isolation level always stays and quota counts use locking reads. Index the
+  state column together with the quota scope columns.
 - **PostgreSQL** at its default READ COMMITTED is fully supported; a host that runs REPEATABLE READ
   gets no quota guarantee.
-- **Deadlocks** are retried `transaction_attempts` times when the package opened the transaction.
+- **Deadlocks** are retried `transactions.attempts` times when the package opened the transaction.
   Inside your transaction, Laravel cannot retry a nested level: the error surfaces and your
   transaction is lost. Keep external side effects in after-commit listeners.
 - **Bulk writes** (`Model::query()->update()`, raw SQL) bypass the engine and are adopted later; see
