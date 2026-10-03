@@ -330,7 +330,7 @@ return [
 | `transactions.mysql_read_committed` | bool | `true` | `LIFECYCLE_MYSQL_READ_COMMITTED` | MySQL/MariaDB: a transaction that counts a quota runs at READ COMMITTED. Off: it keeps your isolation and the quota count takes locking reads. See [Concurrency and database notes](#concurrency-and-database-notes). |
 | `history.store_payload` | bool | `true` | `LIFECYCLE_HISTORY_STORE_PAYLOAD` | Keep the validated payload (minus `sensitive()` keys) in the history row. |
 | `history.max_context_bytes` | int 1024–1048576 | `16384` | — | JSON size cap of the stored context; larger is refused as `invalid_payload`. |
-| `history.reason_max_length` | int 1–10000 | `1000` | — | Longer reasons are refused as `reason_too_long`. |
+| `history.reason_max_length` | int 1–10000 | `1000` | — | Longer reasons are refused as `reason_too_long` (transitions, schedules, rollbacks); a longer freeze reason throws `InvalidLifecycleUsageException`. |
 | `history.purge_on_force_delete` | bool | `true` | `LIFECYCLE_HISTORY_PURGE_ON_FORCE_DELETE` | Force-deleting a subject deletes its records, history and schedules. |
 | `history.prune_after_days` | ?int 1–36500 | `null` | `LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS` | `lifecycle:prune` default for history rows (`null` = never). Limits survive pruning; rollback points and idempotency keys older than the cutoff do not. |
 | `rollback.default_window` | ?interval | `null` | `LIFECYCLE_ROLLBACK_DEFAULT_WINDOW` | How long a transition stays reversible when it declares no window (`"7 days"`; `null` = unlimited). |
@@ -831,9 +831,11 @@ hold:
   `reversible(withoutCompensation: true)`;
 - its window has not passed;
 - the subject is still in the state that row produced;
-- it is not frozen or sealed;
-- the actor passes `rollbackRequires()` / `rollbackGuard()` — or the transition's own actor rules,
-  so nobody can undo what they could not have done;
+- it is not frozen (unless every reverted transition `ignoresFreeze()`) or sealed;
+- the actor passes `rollbackRequires()` / `rollbackGuard()` — or the transition's own actor rules
+  (a `systemOnly()` transition needs system context), so nobody can undo what they could not have
+  done;
+- the reason fits `history.reason_max_length`;
 - no snapshotted attribute changed since (unless `force`);
 - the restored state's quota allows it.
 

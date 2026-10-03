@@ -299,3 +299,21 @@ it('refuses while frozen or sealed and when the state no longer matches', functi
 it('refuses an unsaved subject', function (): void {
     Lifecycles::checkRollback(new RollbackRequest(new Document, 'status'));
 })->throws(SubjectNotPersistedException::class);
+
+it('refuses a rollbackTo through any transition that respects the freeze', function (): void {
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        $l->states(['a', 'b', 'c'])->initial('a');
+        $l->transition('ab')->from('a')->to('b');
+        $l->transition('bc')->from('b')->to('c')->ignoresFreeze();
+    });
+    $document = Document::factory()->create();
+    $initial = Lifecycles::for($document)->history()->last();
+    $document->transition('ab');
+    $document->transition('bc');
+    Lifecycles::for($document)->freeze();
+
+    expect(Lifecycles::for($document)->canRollback()->allowed)->toBeTrue()
+        ->and(Lifecycles::for($document)->canRollbackTo($initial)->codes())->toBe(['frozen'])
+        ->and(rollbackCodes(fn () => Lifecycles::for($document)->rollbackTo($initial)))->toBe(['frozen'])
+        ->and($document->fresh()?->status)->toBe('c');
+});

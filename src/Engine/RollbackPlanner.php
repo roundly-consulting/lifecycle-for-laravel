@@ -80,8 +80,19 @@ final readonly class RollbackPlanner
             $denials[] = Denial::of(DenialCode::StateMismatch, $params, source: 'rollback');
         }
 
-        if ($record !== null && ! ($topTransition !== null && $topTransition->ignoresFreeze) && $record->isFrozen($now)) {
+        // A freeze binds unless every reverted transition ignores it — undoing several steps
+        // must not walk back through one that respects the freeze.
+        $ignoresFreeze = array_all($targets, static fn (LifecycleTransition $row): bool => $row->transition !== null
+            && ($definition->transition($row->transition)->ignoresFreeze ?? false));
+
+        if ($record !== null && ! $ignoresFreeze && $record->isFrozen($now)) {
             $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
+        }
+
+        $tooLong = GuardPipeline::reasonTooLong($request->reason, $params);
+
+        if ($tooLong !== null) {
+            $denials[] = $tooLong;
         }
 
         $sealedAfter = $definition->state($current)->sealedAfter;

@@ -151,9 +151,9 @@ final readonly class GuardPipeline
 
     /**
      * Who may roll a row back (user context): the reverted transition's `rollbackRequires()` /
-     * `rollbackGuard()` when declared, otherwise its own actor rules (rows 8–10) for the
-     * rolling-back actor — a transition that needs an ability cannot be undone by someone who
-     * could not have applied it.
+     * `rollbackGuard()` when declared, otherwise what applying it needed — its own actor rules
+     * (rows 8–10) for the rolling-back actor, and system context for a `systemOnly()` one (row
+     * 7). Nobody can undo what they could not have done.
      *
      * @return list<Denial>
      */
@@ -167,7 +167,9 @@ final readonly class GuardPipeline
         }
 
         if (! $rule->hasActorRules()) {
-            return $this->actor($evaluation);
+            return $context->transition->systemOnly
+                ? [Denial::of(DenialCode::SystemOnly, $this->params($evaluation), source: 'context')]
+                : $this->actor($evaluation);
         }
 
         $params = $this->params($evaluation);
@@ -420,11 +422,10 @@ final readonly class GuardPipeline
             $denials[] = Denial::of(DenialCode::ReasonRequired, $this->params($evaluation), source: 'input');
         }
 
-        $max = Config::using(InvalidLifecycleConfigurationException::class)
-            ->intBetween('lifecycle.history.reason_max_length', 1, 10000, 1000);
+        $tooLong = self::reasonTooLong($context->reason, $this->params($evaluation));
 
-        if ($context->reason !== null && mb_strlen($context->reason) > $max) {
-            $denials[] = Denial::of(DenialCode::ReasonTooLong, [...$this->params($evaluation), 'max' => $max], source: 'input');
+        if ($tooLong !== null) {
+            $denials[] = $tooLong;
         }
 
         if ($apply || $evaluation->payloadGiven) {
@@ -436,6 +437,28 @@ final readonly class GuardPipeline
         }
 
         return $denials;
+    }
+
+    /**
+     * `history.reason_max_length`, for every reason the package stores (transitions, schedules,
+     * rollbacks, freezes).
+     */
+    public static function reasonMaxLength(): int
+    {
+        return Config::using(InvalidLifecycleConfigurationException::class)
+            ->intBetween('lifecycle.history.reason_max_length', 1, 10000, 1000);
+    }
+
+    /**
+     * @param  array<string, scalar>  $params
+     */
+    public static function reasonTooLong(?string $reason, array $params): ?Denial
+    {
+        $max = self::reasonMaxLength();
+
+        return $reason !== null && mb_strlen($reason) > $max
+            ? Denial::of(DenialCode::ReasonTooLong, [...$params, 'max' => $max], source: 'input')
+            : null;
     }
 
     /**
