@@ -31,11 +31,13 @@ final class ListingLifecycle extends LifecycleDefinition
             ->allowSystem();
 
         $lifecycle->transition('close')
-            ->from(ListingStatus::Active)->to(ListingStatus::Closed);
+            ->from(ListingStatus::Active)->to(ListingStatus::Closed)
+            ->rules(['note' => 'nullable|string|max:500']);
 
         $lifecycle->transition('reopen')
             ->from(ListingStatus::Closed)->to(ListingStatus::Active)
-            ->maxOccurrences(3)->cooldown('1 hour')->requiresReason();
+            ->maxOccurrences(3)->cooldown('1 hour')->requiresReason()
+            ->rules(['note' => 'nullable|string|max:500']);
 
         $lifecycle->transition('expire')
             ->from(ListingStatus::Active)->to(ListingStatus::Expired)

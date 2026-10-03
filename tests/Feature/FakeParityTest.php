@@ -67,6 +67,7 @@ dataset('structural scenarios', [
     'system-only in user context' => [fn (Document $d) => Lifecycles::for($d)->apply('system')],
     'system context on a user transition' => [fn (Document $d) => Lifecycles::for($d)->asSystem()->apply('ab')],
     'system-only in system context' => [fn (Document $d) => Lifecycles::for($d)->asSystem()->apply('system')],
+    'payload without rules' => [fn (Document $d) => Lifecycles::for($d)->with(['note' => 'x'])->apply('ab')],
 ]);
 
 it('gives the same outcome on the real manager and the fake', function (Closure $scenario): void {

@@ -39,6 +39,7 @@ use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
@@ -51,7 +52,7 @@ use RoundlyConsulting\Lifecycle\Support\Durations;
  * Installed by `Lifecycles::fake()`. A manager subtype, so injected managers are faked too.
  *
  * It evaluates the real compiled definition's structural checks (unknown transition, wrong
- * source, terminal state, system-only) against the in-memory attribute and, when they pass,
+ * source, terminal state, system-only, a payload without `rules()`) against the in-memory attribute and, when they pass,
  * changes that attribute in memory — no database writes, no events, no jobs. DB-backed
  * checks (guards, limits, quotas) are skipped; steer outcomes with `denyNext()` / `deny()`.
  * The model hooks that only touch the in-memory model (initial state, strict writes) keep
@@ -621,6 +622,10 @@ final class LifecycleFake extends LifecycleManager
 
         if ($transition instanceof Denial) {
             return Decision::deny($transition);
+        }
+
+        if ($request->payload !== [] && $transition->rules === []) {
+            throw InvalidLifecycleUsageException::undeclaredPayload($transition->name, array_keys($request->payload));
         }
 
         $params = ['transition' => $transition->label(), 'state' => $definition->stateLabel($current)];

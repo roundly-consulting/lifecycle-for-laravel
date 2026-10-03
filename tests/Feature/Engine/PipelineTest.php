@@ -146,6 +146,39 @@ it('reports payload validation errors per field', function (): void {
     }
 });
 
+it('refuses a payload sent to a transition that declares no rules', function (string $call, Closure $run): void {
+    $document = documentWith(fn (TransitionBuilder $go) => $go->allowSystem());
+
+    expect(fn () => $run($document))->toThrow(
+        InvalidLifecycleUsageException::class,
+        'Transition [go] declares no rules(), so its payload [note, priority] would be dropped. Declare rules() for the keys it accepts.',
+    )->and($document->fresh()?->status)->toBe('a');
+})->with([
+    'apply' => ['apply', fn (Document $d) => Lifecycles::for($d)->with(['note' => 'hello', 'priority' => 1])->apply('go')],
+    'attempt' => ['attempt', fn (Document $d) => Lifecycles::for($d)->with(['note' => 'hello', 'priority' => 1])->attempt('go')],
+    'check' => ['check', fn (Document $d) => Lifecycles::for($d)->with(['note' => 'hello', 'priority' => 1])->check('go')],
+    'transitionTo' => ['transitionTo', fn (Document $d) => Lifecycles::for($d)->with(['note' => 'hello', 'priority' => 1])->transitionTo('b')],
+    'trait' => ['trait', fn (Document $d) => $d->transition('go', ['note' => 'hello', 'priority' => 1])],
+    'schedule' => ['schedule', fn (Document $d) => Lifecycles::for($d)->asSystem()->with(['note' => 'hello', 'priority' => 1])->schedule('go', CarbonImmutable::now()->addDay())],
+]);
+
+it('accepts an empty payload on a transition without rules', function (): void {
+    $document = documentWith(fn (TransitionBuilder $go) => $go);
+
+    expect(Lifecycles::for($document)->with([])->check('go')->allowed)->toBeTrue()
+        ->and($document->transition('go')->to)->toBe('b');
+});
+
+it('keeps only the validated keys of a payload with rules', function (): void {
+    $document = documentWith(fn (TransitionBuilder $go) => $go->rules(['note' => 'string'])->handledBy(function (TransitionContext $context): void {
+        expect($context->payload)->toBe(['note' => 'kept']);
+    }));
+
+    $result = Lifecycles::for($document)->with(['note' => 'kept', 'extra' => 'dropped'])->apply('go');
+
+    expect($result->record->context)->toBe(['note' => 'kept']);
+});
+
 it('caps the size of the stored payload', function (): void {
     $document = documentWith(fn (TransitionBuilder $go) => $go->rules(['note' => 'string']));
     config()->set('lifecycle.history.max_context_bytes', 1024);

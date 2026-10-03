@@ -87,4 +87,16 @@ final class InvalidLifecycleUsageException extends LifecycleException
     {
         return new self(sprintf('A rollback may revert at most %d rows (rollback.max_steps).', $max));
     }
+
+    /**
+     * @param  list<int|string>  $keys
+     */
+    public static function undeclaredPayload(string $transition, array $keys): self
+    {
+        return new self(sprintf(
+            'Transition [%s] declares no rules(), so its payload [%s] would be dropped. Declare rules() for the keys it accepts.',
+            $transition,
+            implode(', ', array_map(strval(...), $keys)),
+        ));
+    }
 }

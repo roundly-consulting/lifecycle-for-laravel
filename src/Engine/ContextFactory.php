@@ -13,13 +13,15 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Builds what the pipeline evaluates: validates the payload (only validated keys survive),
- * measures what history would store, and assembles the context guards and handlers see.
+ * measures what history would store, and assembles the context guards and handlers see. A
+ * payload sent to a transition without `rules()` would be dropped, so it is a usage error.
  *
  * @internal
  */
@@ -40,6 +42,10 @@ final readonly class ContextFactory
         ?int $scheduleId = null,
         bool $sweep = false,
     ): Evaluation {
+        if ($request->payload !== [] && $transition->rules === []) {
+            throw InvalidLifecycleUsageException::undeclaredPayload($transition->name, array_keys($request->payload));
+        }
+
         $errors = [];
         $validated = [];
 

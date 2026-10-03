@@ -17,8 +17,9 @@ Initial public release.
   self-transitions, labels and metadata. Definitions are validated when compiled and by
   `lifecycle:validate` (errors and warnings).
 - One guard pipeline for `can()`, `check()`, `allowedTransitions()` and `apply()`: Gate abilities,
-  actor rules, system-only transitions, required reasons, payload validation with sensitive keys,
-  custom guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a
+  actor rules, system-only transitions, required reasons, payload validation with sensitive keys
+  (a payload sent to a transition without `rules()` is refused, never silently dropped), custom
+  guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a
   structured, translated `Denial`.
 - Limits: maximum occurrences, cooldowns, minimum time in a state, per-actor or per-subject rate
   limits and race-free quotas per scope column, with a fixed or per-subject maximum.

@@ -156,11 +156,13 @@ final class ListingLifecycle extends LifecycleDefinition
             ->allowSystem();
 
         $lifecycle->transition('close')
-            ->from(ListingStatus::Active)->to(ListingStatus::Closed);
+            ->from(ListingStatus::Active)->to(ListingStatus::Closed)
+            ->rules(['note' => 'nullable|string|max:500']);
 
         $lifecycle->transition('reopen')
             ->from(ListingStatus::Closed)->to(ListingStatus::Active)
-            ->maxOccurrences(3)->cooldown('1 hour')->requiresReason();
+            ->maxOccurrences(3)->cooldown('1 hour')->requiresReason()
+            ->rules(['note' => 'nullable|string|max:500']);
 
         $lifecycle->transition('expire')
             ->from(ListingStatus::Active)->to(ListingStatus::Expired)
@@ -437,6 +439,10 @@ $listing->canTransition('reopen');                             // bool
 $listing->lifecycle()->by($user)->because('Back in stock')->apply('reopen');
 $listing->transitionTo(ListingStatus::Archived);
 ```
+
+A payload is validated by the transition's `rules()`, and only the validated keys reach guards,
+handlers and history. Sending a payload to a transition that declares no `rules()` throws
+`InvalidLifecycleUsageException` instead of silently dropping it.
 
 `apply()` returns a `TransitionResult` (`subject`, `lifecycle`, `transition`, `from`, `to`,
 `record`, `replayed`). A refused call throws `TransitionDeniedException` and leaves the model exactly as

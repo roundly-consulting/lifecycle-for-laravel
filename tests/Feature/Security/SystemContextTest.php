@@ -8,16 +8,15 @@ use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
-use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 
 it('cannot be switched to system context through input', function (): void {
     expect(method_exists(TransitionRequest::class, 'fromArray'))->toBeFalse()
         ->and(method_exists(TransitionRequest::class, 'from'))->toBeFalse();
 
-    $listing = Listing::factory()->create();
-    $listing->transition('publish');
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn (TransitionBuilder $go) => $go
+        ->systemOnly()->rules(['system' => 'boolean', 'actor' => 'string', 'reason' => 'string'])));
 
-    $decision = Lifecycles::for($listing)->with(['system' => true, 'actor' => 'admin', 'reason' => 'x'])->check('expire');
+    $decision = Lifecycles::for(Document::factory()->create())->with(['system' => true, 'actor' => 'admin', 'reason' => 'x'])->check('go');
 
     expect($decision->codes())->toBe(['system_only']);
 });

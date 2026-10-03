@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
@@ -21,12 +22,12 @@ it('stores only validated payload keys', function (): void {
     expect(storedContext())->toBe(['note' => 'kept']);
 });
 
-it('stores nothing for a transition without rules', function (): void {
+it('refuses a payload for a transition without rules and stores nothing', function (): void {
     defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l));
 
-    Lifecycles::for(Document::factory()->create())->with(['anything' => 'goes'])->apply('go');
-
-    expect(storedContext())->toBeNull();
+    expect(fn () => Lifecycles::for(Document::factory()->create())->with(['anything' => 'goes'])->apply('go'))
+        ->toThrow(InvalidLifecycleUsageException::class, 'payload [anything] would be dropped')
+        ->and(LifecycleTransition::query()->where('kind', 'transition')->count())->toBe(0);
 });
 
 it('stores no payload when history.store_payload is off', function (string $value): void {
