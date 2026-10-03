@@ -6,18 +6,22 @@ namespace RoundlyConsulting\Lifecycle\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Definition\Issue;
+use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Exceptions\LifecycleException;
 use RoundlyConsulting\Lifecycle\Exceptions\QuotaScopeException;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
+use RoundlyConsulting\Lifecycle\Support\SweepSchedule;
 
 /**
  * Validates definitions: every error and warning, with its message. For `Model:attribute`
  * the columns the definition names (stamps, expiry attributes, quota scopes) must exist on
  * the model's table. Without arguments it validates every lifecycle of every model in
- * `lifecycle.subjects`. Exits 1 on errors — or warnings with `--strict`, where nothing to
- * validate counts as a failure too.
+ * `lifecycle.subjects`, and warns when a definition needs `lifecycle:sweep` but the host never
+ * scheduled it. Exits 1 on errors — or warnings with `--strict`, where nothing to validate
+ * counts as a failure too.
  */
 final class ValidateCommand extends Command
 {
@@ -54,11 +58,14 @@ final class ValidateCommand extends Command
         }
 
         $failed = false;
+        $needsSweep = false;
 
         foreach ($targets as $target) {
             try {
-                $report = $registry->validate($this->definitionClass($arguments, $registry, $target));
+                $class = $this->definitionClass($arguments, $registry, $target);
+                $report = $registry->validate($class);
                 $columns = str_contains($target, ':') && $report->isValid() ? $this->missingColumns($arguments, $target) : [];
+                $needsSweep = $needsSweep || ($report->isValid() && self::needsSweep($registry->get($class)));
             } catch (LifecycleException $exception) {
                 $this->error(sprintf('%s: %s', $target, $exception->getMessage()));
                 $failed = true;
@@ -82,7 +89,22 @@ final class ValidateCommand extends Command
             $failed = $failed || $errors !== [] || ($this->option('strict') === true && $warnings !== []);
         }
 
+        if ($needsSweep && SweepSchedule::isScheduled() === false) {
+            $this->line('  <comment>warning</comment> lifecycle:sweep is not scheduled — expiries and scheduled transitions will never run.');
+            $failed = $failed || $this->option('strict') === true;
+        }
+
         return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * A definition the sweep has work for: a state that expires, or a transition the system
+     * may run (it can be scheduled).
+     */
+    private static function needsSweep(CompiledDefinition $definition): bool
+    {
+        return $definition->expiringStates() !== []
+            || array_filter($definition->transitions, static fn (TransitionDefinition $transition): bool => $transition->allowsSystem()) !== [];
     }
 
     /**

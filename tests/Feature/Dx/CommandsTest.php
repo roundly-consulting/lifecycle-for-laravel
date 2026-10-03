@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Artisan;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
@@ -112,6 +113,39 @@ it('validates named definitions, reporting every issue', function (): void {
         ->and($output)->toContain('unreachable_state: The state "orphan" cannot be reached from the initial state.');
 
     expect(artisan('lifecycle:validate', ['definition' => [WarningsOnlyLifecycle::class], '--strict' => true])[0])->toBe(1);
+});
+
+it('warns when a definition needs the sweep but it is not scheduled', function (): void {
+    $warning = 'lifecycle:sweep is not scheduled — expiries and scheduled transitions will never run.';
+    config()->set('lifecycle.subjects', [Listing::class]);
+
+    [$code, $output] = artisan('lifecycle:validate');
+
+    expect($code)->toBe(0)
+        ->and($output)->toContain($warning)
+        ->and(artisan('lifecycle:validate', ['--strict' => true])[0])->toBe(1);
+
+    app(Schedule::class)->command('lifecycle:sweep')->everyMinute();
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(0)->and($output)->not->toContain($warning);
+});
+
+it('does not warn about the sweep for a definition without expiries or system transitions', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l));
+    config()->set('lifecycle.subjects', [Document::class]);
+
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(0)->and($output)->not->toContain('lifecycle:sweep');
+});
+
+it('warns about the sweep for a definition with a system transition only', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn ($go) => $go->allowSystem()));
+
+    [$code, $output] = artisan('lifecycle:validate', ['definition' => [Document::class.':status'], '--strict' => true]);
+
+    expect($code)->toBe(1)->and($output)->toContain('lifecycle:sweep is not scheduled');
 });
 
 it('fails on definition errors and unknown targets', function (): void {

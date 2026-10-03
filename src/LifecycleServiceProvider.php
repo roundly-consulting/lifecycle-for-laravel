@@ -18,6 +18,7 @@ use RoundlyConsulting\Lifecycle\Graph\GraphExporter;
 use RoundlyConsulting\Lifecycle\Support\Isolation;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
+use RoundlyConsulting\Lifecycle\Support\SweepSchedule;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 use RoundlyConsulting\Lifecycle\Support\WriteGuard;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
@@ -63,6 +64,11 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                     ->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500),
                 'Queued sweeps' => Config::boolean('lifecycle.schedules.queue.enabled') ? 'ON' : 'OFF',
                 'MySQL quota isolation' => Config::boolean('lifecycle.transactions.mysql_read_committed', true) ? 'READ COMMITTED' : 'locking reads',
+                'Sweep scheduled' => match (SweepSchedule::isScheduled()) {
+                    true => 'yes',
+                    false => 'no',
+                    null => 'unknown',
+                },
                 'History pruning' => ($days = PruneAction::days('lifecycle.history.prune_after_days')) === null ? 'OFF' : $days.' days',
             ]);
     }

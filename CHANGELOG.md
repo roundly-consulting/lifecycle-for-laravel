@@ -35,7 +35,7 @@ Initial public release.
   `effectiveState()`.
 - Scheduled transitions and a `lifecycle:sweep` command that runs warnings, expiries and schedules
   in batches, inline or as unique queued jobs, with retries, deferral while frozen and isolated
-  errors.
+  errors. `php artisan about` and `lifecycle:validate` say when the sweep is not scheduled.
 - Rollbacks: undo the last transition or roll back to a history point (`canRollback()` /
   `canRollbackTo()` ask first), all or nothing, with
   windows, irreversible transitions, compensating handlers, snapshot conflict detection and

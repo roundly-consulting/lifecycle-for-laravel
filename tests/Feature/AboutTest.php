@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Console\Scheduling\Schedule;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Order;
 
@@ -24,6 +25,7 @@ it('renders its about section', function (): void {
         'Schedule batch size', '500',
         'Queued sweeps', 'OFF',
         'MySQL quota isolation', 'READ COMMITTED',
+        'Sweep scheduled', 'no',
         'History pruning', 'OFF',
     ]);
 });
@@ -50,4 +52,14 @@ it('counts the configured subjects', function (): void {
     config()->set('lifecycle.subjects', [Listing::class, Order::class]);
 
     expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Registered subjects', '2']);
+});
+
+it('reports whether the sweep is scheduled', function (): void {
+    app(Schedule::class)->command('lifecycle:prune')->daily();
+
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Sweep scheduled', 'no']);
+
+    app(Schedule::class)->command('lifecycle:sweep')->everyMinute();
+
+    expect('lifecycle')->toLeakNoSecrets([], mustRender: ['Sweep scheduled', 'yes']);
 });
