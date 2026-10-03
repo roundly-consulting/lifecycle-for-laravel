@@ -276,18 +276,14 @@ class LifecycleManager
     /**
      * `updating`: with strict writes on, a direct change of a lifecycle attribute throws
      * unless inside `allowDirectWrites()`; an allowed one must still be a declared state.
-     * Pure — no DB.
+     * The engine's own writes never reach here dirty (the compare-and-swap syncs them), so this
+     * also guards handlers and hooks. Pure — no DB.
      *
      * @internal
      */
     public function guardDirectWrite(Model $subject): void
     {
         $guard = $this->container()->make(WriteGuard::class);
-
-        if ($guard->inEngine()) {
-            return;
-        }
-
         $registry = $this->registry();
 
         foreach (array_keys($registry->definitionsOf($subject)) as $lifecycle) {
@@ -319,19 +315,22 @@ class LifecycleManager
      */
     public function subjectSaved(Model $subject): void
     {
-        if ($this->container()->make(WriteGuard::class)->inEngine()) {
-            return;
-        }
+        $guard = $this->container()->make(WriteGuard::class);
 
         foreach (array_keys($this->registry()->definitionsOf($subject)) as $lifecycle) {
             $lifecycle = (string) $lifecycle;
 
+            // The lifecycle the engine is writing right now is reconciled by the engine itself.
+            if ($guard->inEngine($subject, $lifecycle)) {
+                continue;
+            }
+
             if ($subject->isDirty($lifecycle) && $subject->wasChanged($lifecycle)) {
                 $this->container()->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle);
             }
-        }
 
-        $this->container()->make(SyncExpiryAttributeAction::class)->execute($subject);
+            $this->container()->make(SyncExpiryAttributeAction::class)->execute($subject, $lifecycle);
+        }
     }
 
     /**

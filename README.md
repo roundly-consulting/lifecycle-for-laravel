@@ -523,7 +523,9 @@ transition throws `IdempotencyConflictException`. A replay does not check actor 
 that cannot be guessed or that include the actor.
 
 `apply()` saves the model after its handlers when anything is dirty, including changes you made
-before calling it. A dirty lifecycle attribute itself is a usage error.
+before calling it. A dirty lifecycle attribute itself is a usage error, and so is a handler or hook
+that changes the state being written. Inside handlers, every other model (and every other lifecycle
+of the same model) keeps strict writes: change another subject's state with a transition.
 
 ### Asking before acting
 

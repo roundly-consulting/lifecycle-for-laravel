@@ -186,7 +186,7 @@ final readonly class TransitionExecutor
 
         $this->write($subject, $lifecycle, $definition, $from, $to, $target->stamps);
 
-        $this->writes->engine(function () use ($definition, $context, $from, $to, $self, $target): void {
+        $this->writes->engine($subject, $lifecycle, function () use ($definition, $context, $from, $to, $self, $target): void {
             if (! $self) {
                 foreach ($definition->state($from)->onExit as $hook) {
                     $this->runHook($hook, new StateHookContext($context->subject, $context->lifecycle, $context->from ?? $definition->value($from), $context));
@@ -204,6 +204,11 @@ final readonly class TransitionExecutor
             }
 
             $this->guardQuotaScope($context->subject, $target, $self);
+
+            // The compare-and-swap wrote this attribute: a handler or hook may not change it.
+            if ($context->subject->isDirty($context->lifecycle)) {
+                throw InvalidLifecycleUsageException::dirtyStateAttribute($context->subject::class, $context->lifecycle);
+            }
 
             if ($context->subject->isDirty()) {
                 $context->subject->save();

@@ -29,9 +29,11 @@ final readonly class SyncExpiryAttributeAction
         private ScheduleBook $schedules,
     ) {}
 
-    public function execute(Model $subject): void
+    public function execute(Model $subject, ?string $lifecycle = null): void
     {
-        foreach (array_keys($this->registry->definitionsOf($subject)) as $lifecycle) {
+        $lifecycles = $lifecycle === null ? array_keys($this->registry->definitionsOf($subject)) : [$lifecycle];
+
+        foreach ($lifecycles as $lifecycle) {
             $lifecycle = (string) $lifecycle;
             $definition = $this->registry->of($subject, $lifecycle);
             $raw = $subject->getAttributes()[$lifecycle] ?? null;

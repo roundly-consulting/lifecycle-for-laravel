@@ -15,6 +15,7 @@ use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Events\LifecycleRolledBack;
 use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioned;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
@@ -53,7 +54,7 @@ final readonly class RollbackExecutor
 
             $this->transitions->write($subject, $lifecycle, $definition, $from, $to, []);
 
-            $this->writes->engine(function () use ($subject, $row, $transition, $definition, $from, $to, $actor, $request, $now): void {
+            $this->writes->engine($subject, $lifecycle, function () use ($subject, $lifecycle, $row, $transition, $definition, $from, $to, $actor, $request, $now): void {
                 $before = $row->snapshot['before'] ?? null;
 
                 if (is_array($before) && $before !== []) {
@@ -80,6 +81,11 @@ final readonly class RollbackExecutor
                         reason: $request->reason,
                         now: $now,
                     ));
+                }
+
+                // The compare-and-swap wrote this attribute: a compensating handler may not change it.
+                if ($subject->isDirty($lifecycle)) {
+                    throw InvalidLifecycleUsageException::dirtyStateAttribute($subject::class, $lifecycle);
                 }
 
                 if ($subject->isDirty()) {
