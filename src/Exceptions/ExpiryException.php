@@ -16,7 +16,7 @@ final class ExpiryException extends LifecycleException
 
     public static function noPendingExpiry(string $state): self
     {
-        return new self(sprintf('The state [%s] has no pending expiry to extend.', $state));
+        return new self(sprintf('The current stay in [%s] has no pending expiry.', $state));
     }
 
     public static function noTtl(string $state): self

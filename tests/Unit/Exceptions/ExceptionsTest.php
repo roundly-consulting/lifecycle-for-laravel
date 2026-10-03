@@ -8,6 +8,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Exceptions\ConcurrentTransitionException;
+use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\LifecycleException;
 use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
@@ -48,4 +49,10 @@ it('names the subject or schedule that changed concurrently', function (): void 
     expect(ConcurrentTransitionException::lostRace($document, 'status')->getMessage())
         ->toBe('The lifecycle [status] of ['.Document::class.' #1] was changed concurrently.')
         ->and(ConcurrentTransitionException::scheduleChanged(7)->getMessage())->toBe('The lifecycle schedule #7 was changed concurrently.');
+});
+
+it('names the state in expiry errors', function (): void {
+    expect(ExpiryException::stateCannotExpire('draft')->getMessage())->toBe('The state [draft] declares no expiry.')
+        ->and(ExpiryException::noPendingExpiry('active')->getMessage())->toBe('The current stay in [active] has no pending expiry.')
+        ->and(ExpiryException::noTtl('active')->getMessage())->toBe('The state [active] has no fixed TTL; pass the interval to renew() explicitly.');
 });

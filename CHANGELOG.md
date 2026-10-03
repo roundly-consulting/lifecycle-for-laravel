@@ -35,7 +35,8 @@ Initial public release.
 - Scheduled transitions and a `lifecycle:sweep` command that runs warnings, expiries and schedules
   in batches, inline or as unique queued jobs, with retries, deferral while frozen and isolated
   errors.
-- Rollbacks: undo the last transition or roll back to a history point, all or nothing, with
+- Rollbacks: undo the last transition or roll back to a history point (`canRollback()` /
+  `canRollbackTo()` ask first), all or nothing, with
   windows, irreversible transitions, compensating handlers, snapshot conflict detection and
   restored stamps, counters, entry times and schedules.
 - An append-only history (actor, reason, context, snapshot) and `lifecycle:prune`.

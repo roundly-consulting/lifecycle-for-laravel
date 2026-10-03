@@ -747,6 +747,7 @@ is not checked against definition rules; the actor is recorded for audit only.
 Lifecycles::for($listing)->by($user)->rollback();                 // undo the last transition
 Lifecycles::for($listing)->rollbackTo($record);                   // undo everything after a history row (or its id)
 Lifecycles::for($listing)->canRollback();                         // Decision
+Lifecycles::for($listing)->canRollbackTo($record);                // Decision
 Lifecycles::for($listing)->rollback(force: true);                 // ignore snapshot conflicts
 
 Lifecycles::for($listing)->history(20);                           // Collection<TransitionRecord>, newest first

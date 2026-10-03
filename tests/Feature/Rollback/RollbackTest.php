@@ -142,6 +142,22 @@ it('refuses to roll back to the current top or with nothing done', function (): 
         ->and(Lifecycles::for($document)->canRollback()->codes())->toBe(['nothing_to_rollback']);
 });
 
+it('tells whether a rollback to a point would be allowed', function (): void {
+    $document = chain();
+    $other = Document::factory()->create();
+    $initial = LifecycleTransition::query()->where('subject_id', $document->id)->sole();
+    $document->transition('ab');
+    $top = Lifecycles::for($document)->lastTransition();
+    $foreign = LifecycleTransition::query()->where('subject_id', $other->id)->sole()->id;
+
+    expect(Lifecycles::for($document)->canRollbackTo($initial->id)->allowed)->toBeTrue()
+        ->and(Lifecycles::for($document)->canRollbackTo($initial->toRecord(Lifecycles::for($document)->definition()))->allowed)->toBeTrue()
+        ->and(Lifecycles::for($document)->canRollbackTo($foreign)->codes())->toBe(['not_on_path'])
+        ->and($top)->not->toBeNull()
+        ->and(Lifecycles::for($document)->canRollbackTo($top ?? 0)->codes())->toBe(['nothing_to_rollback'])
+        ->and($document->fresh()?->status)->toBe('b');
+});
+
 it('bounds the steps of one rollback', function (): void {
     config()->set('lifecycle.rollback.max_steps', 1);
     $document = chain();

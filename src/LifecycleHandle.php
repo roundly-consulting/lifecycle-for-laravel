@@ -268,6 +268,14 @@ final readonly class LifecycleHandle
     }
 
     /**
+     * Whether `rollbackTo($point)` would be allowed right now.
+     */
+    public function canRollbackTo(int|TransitionRecord $point): Decision
+    {
+        return $this->manager->checkRollback($this->rollbackRequest($point instanceof TransitionRecord ? $point->id : $point, false));
+    }
+
+    /**
      * The newest history rows first.
      *
      * @return Collection<int, TransitionRecord>
@@ -454,7 +462,7 @@ final readonly class LifecycleHandle
     private function changeExpiry(ExpiryChange $change, ?CarbonInterface $at = null, ?CarbonInterval $interval = null): CarbonImmutable
     {
         return $this->manager->changeExpiry(new ExpiryChangeRequest($this->subject, $this->lifecycle, $change, $at, $interval, $this->actor))
-            ?? throw ExpiryException::noPendingExpiry($this->lifecycle);
+            ?? throw ExpiryException::noPendingExpiry($this->definition()->key($this->state()));
     }
 
     private function expiry(): ?LifecycleSchedule
