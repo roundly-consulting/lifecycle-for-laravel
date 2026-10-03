@@ -30,6 +30,6 @@ final readonly class GraphExporter
     public static function defaultFormat(): GraphFormat
     {
         return Config::using(InvalidLifecycleConfigurationException::class)
-            ->enum('lifecycle.graph.default_format', GraphFormat::class);
+            ->enum('lifecycle.graph.default_format', GraphFormat::class, GraphFormat::Mermaid);
     }
 }

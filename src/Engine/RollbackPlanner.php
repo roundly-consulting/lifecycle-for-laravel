@@ -40,7 +40,7 @@ final readonly class RollbackPlanner
     {
         $now = Clock::now();
         $current = $definition->key($subject->getRawOriginal($lifecycle) ?? ($subject->getAttributes()[$lifecycle] ?? null));
-        $max = Config::using(InvalidLifecycleConfigurationException::class)->intBetween('lifecycle.rollback.max_steps', 1, 1000, 50);
+        $max = Config::using(InvalidLifecycleConfigurationException::class)->integer('lifecycle.rollback.max_steps', 50, 1, 1000);
         $params = ['state' => $definition->stateLabel($current), 'transition' => ''];
 
         $path = array_values($this->path($subject, $lifecycle)->limit($request->toHistoryId === null ? 1 : $max + 1)->get()->all());

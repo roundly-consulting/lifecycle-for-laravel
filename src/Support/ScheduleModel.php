@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\ModelResolver;
 
 /**
@@ -24,13 +25,13 @@ final class ScheduleModel
      */
     public static function class(): string
     {
-        $class = ModelResolver::for('lifecycle.models.schedule', LifecycleSchedule::class);
-
-        if (! is_a($class, LifecycleSchedule::class, true)) {
-            throw InvalidLifecycleConfigurationException::modelMustExtend('lifecycle.models.schedule', LifecycleSchedule::class);
+        // Strict: a missing class or one that does not extend the packaged model throws — it
+        // never falls back to the packaged model.
+        try {
+            return ModelResolver::for('lifecycle.models.schedule', LifecycleSchedule::class);
+        } catch (InvalidConfigurationException $exception) {
+            throw InvalidLifecycleConfigurationException::modelMustExtend('lifecycle.models.schedule', LifecycleSchedule::class, $exception);
         }
-
-        return $class;
     }
 
     public static function newFor(Model $subject): LifecycleSchedule

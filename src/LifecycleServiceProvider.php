@@ -67,7 +67,7 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 'History model' => class_basename(TransitionModel::class()),
                 'Schedule model' => class_basename(ScheduleModel::class()),
                 'Schedule batch size' => (string) Config::using(InvalidLifecycleConfigurationException::class)
-                    ->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500),
+                    ->integer('lifecycle.schedules.batch_size', 500, 1, 10000),
                 'Queued sweeps' => Config::boolean('lifecycle.schedules.queue.enabled') ? 'ON' : 'OFF',
                 'MySQL quota isolation' => Config::boolean('lifecycle.transactions.mysql_read_committed', true) ? 'READ COMMITTED' : 'locking reads',
                 'Sweep scheduled' => match (SweepSchedule::isScheduled()) {

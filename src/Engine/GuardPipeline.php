@@ -472,7 +472,7 @@ final readonly class GuardPipeline
     public static function reasonMaxLength(): int
     {
         return Config::using(InvalidLifecycleConfigurationException::class)
-            ->intBetween('lifecycle.history.reason_max_length', 1, 10000, 1000);
+            ->integer('lifecycle.history.reason_max_length', 1000, 1, 10000);
     }
 
     /**

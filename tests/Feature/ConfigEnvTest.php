@@ -5,7 +5,9 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Artisan;
 use RoundlyConsulting\Lifecycle\Actions\PruneAction;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Support\Transactions;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 
 /**
@@ -70,4 +72,30 @@ it('prunes nothing when the retention keys are empty', function (): void {
 
     expect(Artisan::call('lifecycle:prune'))->toBe(0)
         ->and(Artisan::output())->toContain('Nothing to prune');
+});
+
+it('refuses an integer setting that is not a canonical integer', function (string $key, mixed $value): void {
+    config()->set($key, $value);
+
+    expect(fn () => match ($key) {
+        'lifecycle.transactions.attempts' => Transactions::attempts(),
+        default => PruneAction::days($key),
+    })->toThrow(InvalidLifecycleConfigurationException::class);
+})->with([
+    'a decimal' => ['lifecycle.transactions.attempts', '5.5'],
+    'an explicit plus' => ['lifecycle.transactions.attempts', '+5'],
+    'an exponent' => ['lifecycle.transactions.attempts', '1e3'],
+    'a bool' => ['lifecycle.transactions.attempts', true],
+    'empty, not nullable' => ['lifecycle.transactions.attempts', ''],
+    'a decimal retention' => ['lifecycle.history.prune_after_days', '30.5'],
+]);
+
+it('takes the default of an absent integer setting and keeps a canonical one', function (): void {
+    config()->set('lifecycle.transactions.attempts', null);
+
+    expect(Transactions::attempts())->toBe(3);
+
+    config()->set('lifecycle.transactions.attempts', ' 7 ');
+
+    expect(Transactions::attempts())->toBe(7);
 });

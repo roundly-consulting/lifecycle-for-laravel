@@ -20,9 +20,25 @@ it('documents every swap seam', function (): void {
 it('refuses a swapped model that does not extend the package model', function (string $key, Closure $resolve): void {
     config()->set($key, Listing::class);
 
-    expect($resolve)->toThrow(InvalidLifecycleConfigurationException::class, 'must extend');
+    expect($resolve)->toThrow(InvalidLifecycleConfigurationException::class, 'extends');
 })->with([
     'state' => ['lifecycle.models.state', fn () => StateModel::class()],
     'transition' => ['lifecycle.models.transition', fn () => TransitionModel::class()],
     'schedule' => ['lifecycle.models.schedule', fn () => ScheduleModel::class()],
 ]);
+
+it('never falls back to the packaged model for a class that does not exist', function (string $key, mixed $value, Closure $resolve): void {
+    config()->set($key, $value);
+
+    expect($resolve)->toThrow(InvalidLifecycleConfigurationException::class, 'must be an existing class that extends');
+})->with([
+    'state, missing class' => ['lifecycle.models.state', 'App\\Models\\GoneState', fn () => StateModel::class()],
+    'transition, empty string' => ['lifecycle.models.transition', '', fn () => TransitionModel::class()],
+    'schedule, not a string' => ['lifecycle.models.schedule', 42, fn () => ScheduleModel::class()],
+]);
+
+it('reads the packaged model when the key is absent', function (): void {
+    config()->set('lifecycle.models.state', null);
+
+    expect(StateModel::class())->toBe(LifecycleState::class);
+});

@@ -20,9 +20,9 @@ final class InvalidLifecycleConfigurationException extends LifecycleException
         ));
     }
 
-    public static function modelMustExtend(string $key, string $base): self
+    public static function modelMustExtend(string $key, string $base, ?Throwable $previous = null): self
     {
-        return new self(sprintf('The [%s] model must extend [%s].', $key, $base));
+        return new self(sprintf('The [%s] model must be an existing class that extends [%s].', $key, $base), previous: $previous);
     }
 
     public static function notAList(string $key): self

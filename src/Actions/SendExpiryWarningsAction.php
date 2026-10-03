@@ -41,8 +41,8 @@ final readonly class SendExpiryWarningsAction
     public function execute(SweepOptions $options): int
     {
         $config = Config::using(InvalidLifecycleConfigurationException::class);
-        $limit = $options->limit ?? $config->intBetween('lifecycle.schedules.max_per_run', 1, 1000000, 10000);
-        $batch = $config->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500);
+        $limit = $options->limit ?? $config->integer('lifecycle.schedules.max_per_run', 10000, 1, 1000000);
+        $batch = $config->integer('lifecycle.schedules.batch_size', 500, 1, 10000);
         $now = Clock::now();
         $fired = 0;
         $done = 0;

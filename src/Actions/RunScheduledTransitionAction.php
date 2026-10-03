@@ -277,7 +277,7 @@ final readonly class RunScheduledTransitionAction
 
     public static function maxAttempts(): int
     {
-        return Config::using(InvalidLifecycleConfigurationException::class)->intBetween('lifecycle.schedules.max_attempts', 1, 100, 5);
+        return Config::using(InvalidLifecycleConfigurationException::class)->integer('lifecycle.schedules.max_attempts', 5, 1, 100);
     }
 
     public static function retryAfter(): CarbonInterval

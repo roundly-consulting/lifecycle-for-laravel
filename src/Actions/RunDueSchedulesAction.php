@@ -38,8 +38,8 @@ final readonly class RunDueSchedulesAction
     public function execute(SweepOptions $options): SweepResult
     {
         $config = Config::using(InvalidLifecycleConfigurationException::class);
-        $limit = $options->limit ?? $config->intBetween('lifecycle.schedules.max_per_run', 1, 1000000, 10000);
-        $batch = $config->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500);
+        $limit = $options->limit ?? $config->integer('lifecycle.schedules.max_per_run', 10000, 1, 1000000);
+        $batch = $config->integer('lifecycle.schedules.batch_size', 500, 1, 10000);
         $queue = $options->queue ?? Config::boolean('lifecycle.schedules.queue.enabled');
         $this->resumeRestored($options->connection);
         $warned = $options->warnings ? $this->warnings->execute($options) : 0;

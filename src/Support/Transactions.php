@@ -107,6 +107,6 @@ final class Transactions
     public static function attempts(): int
     {
         return max(1, Config::using(InvalidLifecycleConfigurationException::class)
-            ->intBetween('lifecycle.transactions.attempts', 1, 10, 3));
+            ->integer('lifecycle.transactions.attempts', 3, 1, 10));
     }
 }

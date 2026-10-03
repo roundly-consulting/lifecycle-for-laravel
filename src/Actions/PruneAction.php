@@ -84,6 +84,6 @@ final readonly class PruneAction
     {
         return in_array(config($key), [null, ''], true)
             ? null
-            : Config::using(InvalidLifecycleConfigurationException::class)->intBetween($key, 1, 36500, 30);
+            : Config::using(InvalidLifecycleConfigurationException::class)->integer($key, 30, 1, 36500);
     }
 }

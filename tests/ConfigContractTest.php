@@ -19,7 +19,7 @@ use Illuminate\Foundation\Application;
  * than allow-list it.
  */
 it('ships exactly the config keys it reads', function (): void {
-    // The toolkit readers (Config::using()->intBetween/enum, KeyType::fromConfig,
+    // The toolkit readers (Config::using()->integer/enum, KeyType::fromConfig,
     // ModelResolver::for) and Durations::fromConfig are invisible to the token scraper, which
     // only counts config()/Config::get-style reads — the prefix makes their key literals count.
     expect(__DIR__.'/../config/lifecycle.php')->toSatisfyConfigContract(__DIR__.'/../src', [

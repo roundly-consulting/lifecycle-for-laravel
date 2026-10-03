@@ -65,7 +65,7 @@ final readonly class ContextFactory
 
         $stored = Arr::except($validated, $transition->sensitive);
         $limit = Config::using(InvalidLifecycleConfigurationException::class)
-            ->intBetween('lifecycle.history.max_context_bytes', 1024, 1048576, 16384);
+            ->integer('lifecycle.history.max_context_bytes', 16384, 1024, 1048576);
 
         return new Evaluation(
             definition: $definition,

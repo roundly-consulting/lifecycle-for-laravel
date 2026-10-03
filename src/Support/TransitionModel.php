@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\ModelResolver;
 
 /**
@@ -24,13 +25,13 @@ final class TransitionModel
      */
     public static function class(): string
     {
-        $class = ModelResolver::for('lifecycle.models.transition', LifecycleTransition::class);
-
-        if (! is_a($class, LifecycleTransition::class, true)) {
-            throw InvalidLifecycleConfigurationException::modelMustExtend('lifecycle.models.transition', LifecycleTransition::class);
+        // Strict: a missing class or one that does not extend the packaged model throws — it
+        // never falls back to the packaged model.
+        try {
+            return ModelResolver::for('lifecycle.models.transition', LifecycleTransition::class);
+        } catch (InvalidConfigurationException $exception) {
+            throw InvalidLifecycleConfigurationException::modelMustExtend('lifecycle.models.transition', LifecycleTransition::class, $exception);
         }
-
-        return $class;
     }
 
     public static function newFor(Model $subject): LifecycleTransition
