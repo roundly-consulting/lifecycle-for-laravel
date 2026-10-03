@@ -137,7 +137,7 @@ final readonly class GuardPipeline
      * be required, since sensitive keys are never stored. Time rows, quotas and rate limits
      * are evaluated when the schedule runs.
      */
-    public function evaluateSchedule(Evaluation $evaluation): Decision
+    public function evaluateSchedule(Evaluation $evaluation, bool $gate = true): Decision
     {
         $transition = $evaluation->context->transition;
         $params = $this->params($evaluation);
@@ -149,7 +149,7 @@ final readonly class GuardPipeline
             $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
         }
 
-        $denials = [...$denials, ...$this->actor($evaluation), ...$this->input($evaluation)];
+        $denials = [...$denials, ...$this->actor($evaluation, $gate), ...$this->input($evaluation)];
 
         foreach ($transition->sensitive as $key) {
             $rule = $transition->rules[$key] ?? [];
@@ -161,6 +161,17 @@ final readonly class GuardPipeline
         }
 
         return Decision::from($denials);
+    }
+
+    /**
+     * The rows that need neither a database nor the Gate: context (7), actor types and closure
+     * (8–9) and input (11–12) — what `Lifecycles::fake()` mirrors of the pipeline.
+     *
+     * @return list<Denial>
+     */
+    public function pureRows(Evaluation $evaluation): array
+    {
+        return [...$this->context($evaluation), ...$this->actor($evaluation, gate: false), ...$this->input($evaluation)];
     }
 
     /**
@@ -384,7 +395,7 @@ final readonly class GuardPipeline
      *
      * @return list<Denial>
      */
-    private function actor(Evaluation $evaluation): array
+    private function actor(Evaluation $evaluation, bool $gate = true): array
     {
         $context = $evaluation->context;
         $transition = $context->transition;
@@ -411,7 +422,7 @@ final readonly class GuardPipeline
             $denials[] = Denial::of(DenialCode::ActorNotAllowed, $params, source: 'actor');
         }
 
-        if ($transition->ability !== null && ! $this->container->make(Gate::class)->forUser($actor)->allows($transition->ability, [$context->subject, $context])) {
+        if ($gate && $transition->ability !== null && ! $this->container->make(Gate::class)->forUser($actor)->allows($transition->ability, [$context->subject, $context])) {
             $denials[] = Denial::of(DenialCode::Unauthorized, $params, source: 'actor');
         }
 

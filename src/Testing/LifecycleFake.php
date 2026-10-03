@@ -32,7 +32,10 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
+use RoundlyConsulting\Lifecycle\Engine\ContextFactory;
+use RoundlyConsulting\Lifecycle\Engine\Evaluation;
 use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
+use RoundlyConsulting\Lifecycle\Engine\Mode;
 use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
@@ -40,22 +43,28 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
+use RoundlyConsulting\Lifecycle\Exceptions\IdempotencyConflictException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectTrashedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
+use RoundlyConsulting\Lifecycle\Support\ActorResolver;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
+use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Installed by `Lifecycles::fake()`. A manager subtype, so injected managers are faked too.
  *
- * It evaluates the real compiled definition's structural checks (unknown transition, wrong
- * source, terminal state, system context, a payload without `rules()`) against the in-memory
- * attribute and, when they pass, changes that attribute in memory — no database writes, no
- * events, no jobs. It keeps its own state for what it was asked to do: a fake freeze refuses
+ * It evaluates the real compiled definition's checks that need no database and no Gate —
+ * structural rows, system context, actor types and closures, the reason, payload validation
+ * (and `sensitive()` keys), a dirty lifecycle attribute, a soft-deleted subject, idempotency keys —
+ * against the in-memory model and, when they pass, changes the attribute in memory — no database
+ * writes, no events, no jobs. It keeps its own state for what it was asked to do: a fake freeze refuses
  * transitions (`frozen`) like a real one, a fake schedule can be cancelled once and is
  * forgotten when a faked transition leaves its state, and expiry changes compute the real
  * instant from the state's TTL. DB-backed checks (guards, limits, quotas) are skipped; steer
@@ -84,6 +93,9 @@ final class LifecycleFake extends LifecycleManager
     /** @var array<string, array<string, string>> the fake's open schedules per subject lifecycle: transition => state it was scheduled in */
     private array $scheduled = [];
 
+    /** @var array<string, array<string, TransitionResult>> applied transitions per subject lifecycle, by idempotency key */
+    private array $keyed = [];
+
     /**
      * Deny the next application of `$transition` (one-shot).
      */
@@ -108,15 +120,30 @@ final class LifecycleFake extends LifecycleManager
     {
         $this->guardPersisted($request->subject);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
-        $from = $this->current($request->subject, $request->lifecycle, $definition);
-        $transition = $this->evaluate($request, $definition, $from, consume: true);
 
-        if ($transition instanceof Decision) {
-            $this->calls[] = new RecordedCall('apply', $request, denied: $transition);
-
-            throw TransitionDeniedException::because($transition);
+        if ($request->subject->isDirty($request->lifecycle)) {
+            throw InvalidLifecycleUsageException::dirtyStateAttribute($request->subject::class, $request->lifecycle);
         }
 
+        $replay = $this->replay($request, $definition);
+
+        if ($replay !== null) {
+            $this->calls[] = new RecordedCall('apply', $request, $replay);
+
+            return $replay;
+        }
+
+        $this->guardTrashed($request->subject);
+        $from = $this->stored($request->subject, $request->lifecycle, $definition);
+        $evaluation = $this->evaluate($request, $definition, $from, Mode::Apply);
+
+        if ($evaluation instanceof Decision) {
+            $this->calls[] = new RecordedCall('apply', $request, denied: $evaluation);
+
+            throw TransitionDeniedException::because($evaluation);
+        }
+
+        $transition = $evaluation->context->transition;
         $subject = $request->subject;
         $attributes = $subject->getAttributes();
         $attributes[$request->lifecycle] = $definition->encode($transition->to);
@@ -143,11 +170,11 @@ final class LifecycleFake extends LifecycleManager
                 transition: $transition->name,
                 from: $definition->value($from),
                 to: $definition->value($transition->to),
-                actorType: $request->actor?->getMorphClass(),
-                actorId: $request->actor?->getKey(),
+                actorType: $evaluation->context->actor?->getMorphClass(),
+                actorId: $evaluation->context->actor?->getKey(),
                 system: $request->system,
                 reason: $request->reason,
-                context: $request->payload,
+                context: Config::boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [],
                 snapshot: null,
                 version: $this->sequence,
                 revertsId: null,
@@ -160,7 +187,38 @@ final class LifecycleFake extends LifecycleManager
         $this->calls[] = new RecordedCall('apply', $request, $result);
         $this->stacks[self::stackKey($subject, $request->lifecycle)][] = $result;
 
+        if ($request->idempotencyKey !== null) {
+            $this->keyed[self::stackKey($subject, $request->lifecycle)][$request->idempotencyKey] = $result;
+        }
+
         return $result;
+    }
+
+    /**
+     * An earlier application with the same idempotency key: its result again (`replayed`), no
+     * checks; the same key with another transition or target is a conflict — like the real one.
+     */
+    private function replay(TransitionRequest $request, CompiledDefinition $definition): ?TransitionResult
+    {
+        $first = $request->idempotencyKey === null ? null : ($this->keyed[self::stackKey($request->subject, $request->lifecycle)][$request->idempotencyKey] ?? null);
+
+        if ($first === null) {
+            return null;
+        }
+
+        $conflict = $request->transition !== null
+            ? $first->transition !== $request->transition
+            : $definition->key($first->to) !== $definition->key($request->target);
+
+        if ($conflict) {
+            throw IdempotencyConflictException::for(
+                (string) $request->idempotencyKey,
+                $first->transition,
+                $request->transition ?? ($request->target instanceof BackedEnum ? (string) $request->target->value : (string) $request->target),
+            );
+        }
+
+        return new TransitionResult($first->subject, $first->lifecycle, $first->transition, $first->from, $first->to, $first->record, replayed: true);
     }
 
     public function attempt(TransitionRequest $request): TransitionAttempt
@@ -176,7 +234,13 @@ final class LifecycleFake extends LifecycleManager
     {
         $this->guardPersisted($request->subject);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
-        $outcome = $this->evaluate($request, $definition, $this->current($request->subject, $request->lifecycle, $definition), consume: false);
+        $current = $this->current($request->subject, $request->lifecycle, $definition);
+
+        if (SoftDeletion::isTrashed($request->subject)) {
+            return Decision::deny(GuardPipeline::trashed($definition, $current, $request->transition));
+        }
+
+        $outcome = $this->evaluate($request, $definition, $current, Mode::Check);
 
         return $outcome instanceof Decision ? $outcome : Decision::allow();
     }
@@ -221,6 +285,12 @@ final class LifecycleFake extends LifecycleManager
     public function freeze(FreezeRequest $request): bool
     {
         $this->guardPersisted($request->subject);
+
+        if ($request->reason !== null && mb_strlen($request->reason) > GuardPipeline::reasonMaxLength()) {
+            throw InvalidLifecycleUsageException::invalidRequest('a freeze reason has at most '.GuardPipeline::reasonMaxLength().' characters (history.reason_max_length)');
+        }
+
+        $this->guardTrashed($request->subject);
         $key = self::stackKey($request->subject, $request->lifecycle);
         $current = $this->activeFreeze($key);
         $until = $request->until === null ? null : Clock::utc($request->until);
@@ -242,6 +312,7 @@ final class LifecycleFake extends LifecycleManager
     public function unfreeze(UnfreezeRequest $request): bool
     {
         $this->guardPersisted($request->subject);
+        $this->guardTrashed($request->subject);
         $key = self::stackKey($request->subject, $request->lifecycle);
         $frozen = $this->activeFreeze($key) !== null;
         unset($this->frozen[$key]);
@@ -333,6 +404,7 @@ final class LifecycleFake extends LifecycleManager
     public function schedule(ScheduleRequest $request): ScheduledTransition
     {
         $this->guardPersisted($request->subject);
+        $this->guardTrashed($request->subject);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
         $current = $this->current($request->subject, $request->lifecycle, $definition);
         $transition = $this->scheduleDecision($request, $definition, $current);
@@ -372,6 +444,7 @@ final class LifecycleFake extends LifecycleManager
     public function cancelScheduled(CancelScheduleRequest $request): bool
     {
         $this->guardPersisted($request->subject);
+        $this->guardTrashed($request->subject);
         $key = self::stackKey($request->subject, $request->lifecycle);
         $cancelled = isset($this->scheduled[$key][$request->transition]);
         unset($this->scheduled[$key][$request->transition]);
@@ -390,6 +463,7 @@ final class LifecycleFake extends LifecycleManager
     public function changeExpiry(ExpiryChangeRequest $request): ?CarbonImmutable
     {
         $this->guardPersisted($request->subject);
+        $this->guardTrashed($request->subject);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
         $state = $this->current($request->subject, $request->lifecycle, $definition);
         $ttl = $definition->state($state)->ttl ?? throw ExpiryException::stateCannotExpire($state);
@@ -748,21 +822,22 @@ final class LifecycleFake extends LifecycleManager
             return Decision::deny($transition);
         }
 
-        if ($request->payload !== [] && $transition->rules === []) {
-            throw InvalidLifecycleUsageException::undeclaredPayload($transition->name, array_keys($request->payload));
-        }
+        $actor = $this->container()->make(ActorResolver::class)->resolve($request->actor, $request->system);
+        $evaluation = $this->container()->make(ContextFactory::class)->evaluation(
+            $definition,
+            new TransitionRequest($request->subject, $request->lifecycle, $transition->name, actor: $request->actor, system: $request->system, reason: $request->reason, payload: $request->payload),
+            $transition,
+            $current,
+            Mode::Apply,
+            null,
+            $actor,
+        );
 
         $params = ['transition' => $transition->label(), 'state' => $definition->stateLabel($current)];
-        $denials = [];
+        $denials = $this->container()->make(GuardPipeline::class)->evaluateSchedule($evaluation, gate: false)->denials;
 
         if (! $transition->ignoresFreeze && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
-            $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
-        }
-
-        if (! $transition->allowsSystem()) {
-            $denials[] = Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context');
-        } elseif ($transition->systemOnly && ! $request->system) {
-            $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
+            array_unshift($denials, Denial::of(DenialCode::Frozen, $params, source: 'record'));
         }
 
         if ($denials !== []) {
@@ -819,32 +894,27 @@ final class LifecycleFake extends LifecycleManager
     }
 
     /**
-     * The real structural checks (rows 1–3 and 7) plus the fake's own denials.
+     * The real checks that need no database and no Gate (structural rows, the fake's freeze,
+     * context, actor types and closure, reason, payload validation), then the fake's own denials.
      */
-    private function evaluate(TransitionRequest $request, CompiledDefinition $definition, string $current, bool $consume): Decision|TransitionDefinition
+    private function evaluate(TransitionRequest $request, CompiledDefinition $definition, string $current, Mode $mode): Decision|Evaluation
     {
-        $transition = $this->container()->make(GuardPipeline::class)
-            ->resolve($definition, $request->transition, $request->target, $current);
+        $pipeline = $this->container()->make(GuardPipeline::class);
+        $transition = $pipeline->resolve($definition, $request->transition, $request->target, $current);
 
         if ($transition instanceof Denial) {
             return Decision::deny($transition);
         }
 
-        if ($request->payload !== [] && $transition->rules === []) {
-            throw InvalidLifecycleUsageException::undeclaredPayload($transition->name, array_keys($request->payload));
-        }
+        $actor = $this->container()->make(ActorResolver::class)->resolve($request->actor, $request->system);
+        $evaluation = $this->container()->make(ContextFactory::class)
+            ->evaluation($definition, $request, $transition, $current, $mode, null, $actor);
 
         $params = ['transition' => $transition->label(), 'state' => $definition->stateLabel($current)];
-        $denials = [];
+        $denials = $pipeline->pureRows($evaluation);
 
         if (! $transition->ignoresFreeze && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
-            $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
-        }
-
-        if (! $request->system && $transition->systemOnly) {
-            $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
-        } elseif ($request->system && ! $transition->allowsSystem()) {
-            $denials[] = Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context');
+            array_unshift($denials, Denial::of(DenialCode::Frozen, $params, source: 'record'));
         }
 
         if ($denials !== []) {
@@ -853,11 +923,11 @@ final class LifecycleFake extends LifecycleManager
 
         $denial = $this->once[$transition->name] ?? $this->sticky[$transition->name] ?? null;
 
-        if ($consume) {
+        if ($mode === Mode::Apply) {
             unset($this->once[$transition->name]);
         }
 
-        return $denial === null ? $transition : Decision::deny($denial);
+        return $denial === null ? $evaluation : Decision::deny($denial);
     }
 
     private static function stackKey(Model $subject, string $lifecycle): string
@@ -872,10 +942,34 @@ final class LifecycleFake extends LifecycleManager
         }
     }
 
+    /**
+     * The in-memory state, as the real checks read it (a missing or NULL attribute throws).
+     */
     private function current(Model $subject, string $lifecycle, CompiledDefinition $definition): string
     {
         $raw = $subject->getAttributes()[$lifecycle] ?? null;
 
         return $raw === null ? throw UnknownStateException::notInitialized($subject, $lifecycle) : $definition->key($raw);
+    }
+
+    /**
+     * The state a real mutation starts from: the attribute, read from the stored row when the
+     * model was loaded without it; a NULL state is initialised to the initial one.
+     */
+    private function stored(Model $subject, string $lifecycle, CompiledDefinition $definition): string
+    {
+        $attributes = $subject->getAttributes();
+        $raw = array_key_exists($lifecycle, $attributes)
+            ? $attributes[$lifecycle]
+            : $subject->newQueryWithoutScopes()->whereKey($subject->getKey())->value($lifecycle);
+
+        return $raw === null ? $definition->initial : $definition->key($raw);
+    }
+
+    private function guardTrashed(Model $subject): void
+    {
+        if (SoftDeletion::isTrashed($subject)) {
+            throw SubjectTrashedException::for($subject);
+        }
     }
 }

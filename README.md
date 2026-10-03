@@ -61,8 +61,8 @@ append-only history.
   extended, renewed or scheduled for later — one scheduled command runs it all.
 - **Undo is a feature, not a migration.** Roll back the last change or to a point in history, with
   time windows, irreversible steps, compensating handlers and conflict detection.
-- **A real test fake.** `Lifecycles::fake()` refuses what the real engine refuses structurally,
-  remembers its own freezes and schedules, and ships assertions for every change it records.
+- **A real test fake.** `Lifecycles::fake()` refuses what the real engine refuses without a
+  database, remembers its own freezes and schedules, and ships assertions for every change it records.
 
 ## Contents
 
@@ -1079,22 +1079,25 @@ Lifecycles::assertNotTransitioned($listing, 'reopen');
 
 `Lifecycles::fake()` replaces the manager behind the facade **and** in the container, so injected
 managers, handles and `$model->transition()` are faked too. It writes nothing and fires nothing,
-but it refuses what the real engine refuses structurally and keeps its own memory of what it was
-asked to do:
+but it refuses what the real engine refuses without a database and keeps its own memory of what it
+was asked to do:
 
-- **Transitions** run the real definition's structural checks (unknown transition, wrong source
-  state, terminal state, system context, a payload without `rules()`) and change the model's
-  attribute in memory.
+- **Transitions** run every real check that needs no database and no Gate (unknown transition,
+  wrong source state, terminal state, system context, actor types and closures, the reason, payload
+  validation), refuse a dirty lifecycle attribute and a soft-deleted subject, replay idempotency
+  keys, and change the model's attribute in memory.
 - **Freezes**: a faked `freeze()` refuses later transitions (`frozen`) unless they
   `ignoresFreeze()`, until `unfreeze()` or its `until`. Both return what the real calls return.
-- **Schedules**: `schedule()` runs the real schedule-time checks (unknown, terminal or wrong-source
-  transition, system context, freeze, a payload without `rules()`). `cancelScheduled()` returns `true` once for a schedule the
+- **Schedules**: `schedule()` runs the real schedule-time checks except the Gate (unknown, terminal
+  or wrong-source transition, system context, freeze, actor rules, reason, payload, a required
+  `sensitive()` key). `cancelScheduled()` returns `true` once for a schedule the
   fake made, and a faked transition that leaves the state forgets its schedules.
 - **Expiry**: `renew()`, `extend()` and `expireAt()` return the instant the real call would set
   (now + the state's TTL for `renew()`); a state without an expiry throws `ExpiryException`. The
   fake writes no expiry rows, so `extend()` on a model created under the fake extends from now.
 
-Guards, quotas, rate limits and other database-backed checks are skipped. A model created under the
+Guards, Gate abilities, quotas, rate limits, deadlines, limits, seals, expected versions and other
+database-backed checks are skipped. A model created under the
 fake still starts in its initial state, and a direct write still throws. Handle reads backed by the
 database (`enteredAt()`, `isFrozen()`, `expiresAt()`, `history()`, `scheduled()`) see no faked
 changes, so use the assertions:

@@ -5,12 +5,15 @@ declare(strict_types=1);
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Exceptions\DirectStateWriteException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Testing\LifecycleFake;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\User;
 
 /**
  * The fake evaluates the real compiled definition's structural checks: every structural
@@ -29,6 +32,11 @@ function parityLifecycle(): void
         $l->transition('close')->from('*')->to('z');
         $l->transition('system')->from('a')->to('c')->systemOnly();
         $l->transition('thaw')->from('a')->to('c')->ignoresFreeze();
+        $l->transition('needs_actor')->from('a')->to('c')->requiresActor();
+        $l->transition('needs_reason')->from('a')->to('c')->requiresReason();
+        $l->transition('with_rules')->from('a')->to('c')->allowSystem()
+            ->rules(['card' => 'required', 'amount' => 'required|integer'])->sensitive('card');
+        $l->transition('secret')->from('a')->to('c')->allowSystem()->rules(['token' => 'required'])->sensitive('token');
     });
 }
 
@@ -53,6 +61,8 @@ function parityRun(Closure $scenario): array
 
     $returned = match (true) {
         $returned instanceof CarbonInterface => $returned->toIso8601String(),
+        $returned instanceof Decision => implode(',', $returned->codes()),
+        $returned instanceof TransitionResult => $returned->transition.($returned->replayed ? ' (replayed)' : ''),
         is_bool($returned), $returned === null => $returned,
         default => get_debug_type($returned),
     };
@@ -158,6 +168,71 @@ dataset('structural scenarios', [
     }],
     'renew a state without expiry' => [fn (Document $d): CarbonInterface => Lifecycles::for($d)->renew()],
     'clear the expiry of a state without expiry' => [fn (Document $d): bool => Lifecycles::for($d)->neverExpire()],
+    'actor required' => [fn (Document $d) => Lifecycles::for($d)->apply('needs_actor')],
+    'reason required' => [fn (Document $d) => Lifecycles::for($d)->apply('needs_reason')],
+    'reason given' => [fn (Document $d) => Lifecycles::for($d)->because('ok')->apply('needs_reason')],
+    'reason too long' => [function (Document $d) {
+        config()->set('lifecycle.history.reason_max_length', 3);
+
+        return Lifecycles::for($d)->because('too long')->apply('needs_reason');
+    }],
+    'invalid payload' => [fn (Document $d) => Lifecycles::for($d)->with(['card' => '4242'])->apply('with_rules')],
+    'valid payload' => [fn (Document $d) => Lifecycles::for($d)->with(['card' => '4242', 'amount' => 5])->apply('with_rules')],
+    'check without the payload' => [fn (Document $d) => Lifecycles::for($d)->check('with_rules')],
+    'check an invalid payload' => [fn (Document $d) => Lifecycles::for($d)->with(['amount' => 'x'])->check('with_rules')],
+    'schedule a required sensitive key' => [fn (Document $d) => Lifecycles::for($d)->asSystem()->with(['token' => 't'])->schedule('secret', CarbonImmutable::now()->addDay())],
+    'schedule an invalid payload' => [fn (Document $d) => Lifecycles::for($d)->asSystem()->with(['amount' => 'x'])->schedule('with_rules', CarbonImmutable::now()->addDay())],
+    'dirty lifecycle attribute' => [function (Document $d) {
+        $d->setAttribute('status', 'b');
+
+        return Lifecycles::for($d)->apply('bc');
+    }],
+    'idempotent replay' => [function (Document $d) {
+        Lifecycles::for($d)->idempotencyKey('k1')->apply('ab');
+
+        return Lifecycles::for($d)->idempotencyKey('k1')->apply('ab');
+    }],
+    'idempotency key reused for another transition' => [function (Document $d) {
+        Lifecycles::for($d)->idempotencyKey('k1')->apply('ab');
+
+        return Lifecycles::for($d)->idempotencyKey('k1')->apply('bc');
+    }],
+    'idempotency key reused for another target' => [function (Document $d) {
+        Lifecycles::for($d)->idempotencyKey('k1')->apply('ab');
+
+        return Lifecycles::for($d)->idempotencyKey('k1')->transitionTo('c');
+    }],
+    'apply to a soft-deleted subject' => [function (Document $d) {
+        $d->delete();
+
+        return Lifecycles::for($d)->apply('ab');
+    }],
+    'check a soft-deleted subject' => [function (Document $d) {
+        $d->delete();
+
+        return Lifecycles::for($d)->check('ab');
+    }],
+    'freeze a soft-deleted subject' => [function (Document $d) {
+        $d->delete();
+
+        return Lifecycles::for($d)->freeze();
+    }],
+    'schedule on a soft-deleted subject' => [function (Document $d) {
+        $d->delete();
+
+        return Lifecycles::for($d)->asSystem()->schedule('system', CarbonImmutable::now()->addDay());
+    }],
+    'freeze with a reason too long' => [function (Document $d) {
+        config()->set('lifecycle.history.reason_max_length', 3);
+
+        return Lifecycles::for($d)->because('too long')->freeze();
+    }],
+    'apply to a model without the attribute loaded' => [fn (Document $d) => Lifecycles::for(Document::query()->select('id')->findOrFail($d->id))->apply('ab')],
+    'apply to a model whose state is still NULL' => [function (Document $d) {
+        Document::query()->whereKey($d->id)->toBase()->update(['status' => null]);
+
+        return Lifecycles::for(Document::query()->findOrFail($d->id))->apply('ab');
+    }],
     'expire at an instant' => [function (Document $d): CarbonInterface {
         Lifecycles::for($d)->apply('ab');
 
@@ -201,3 +276,21 @@ it('starts a model created under the fake in its initial state and still refuses
 
     expect(fn () => $document->save())->toThrow(DirectStateWriteException::class);
 });
+
+it('returns the same record shape from the fake as from the real manager', function (bool $storePayload): void {
+    parityLifecycle();
+    config()->set('lifecycle.history.store_payload', $storePayload);
+    $user = User::factory()->create();
+    $this->actingAs($user);
+    $shape = function (): array {
+        $record = Lifecycles::for(Document::factory()->create())->with(['card' => '4242', 'amount' => 5])->apply('with_rules')->record;
+
+        return [$record->actorType, $record->actorId, $record->context, $record->system];
+    };
+
+    $real = $shape();
+    Lifecycles::fake();
+
+    expect($shape())->toBe($real)
+        ->and($real)->toBe([$user->getMorphClass(), $user->id, $storePayload ? ['amount' => 5] : [], false]);
+})->with(['payload stored' => true, 'payload not stored' => false]);
