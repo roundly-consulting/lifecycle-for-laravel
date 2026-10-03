@@ -76,9 +76,13 @@ final readonly class PruneAction
                 ->whereColumn('lifecycle_stay.entered_at', '<=', $table.'.finished_at')));
     }
 
+    /**
+     * A retention key read as 1–36500 days; `null` when unset — an empty env value
+     * (`LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS=`) is unset too.
+     */
     public static function days(string $key): ?int
     {
-        return config($key) === null
+        return in_array(config($key), [null, ''], true)
             ? null
             : Config::using(InvalidLifecycleConfigurationException::class)->intBetween($key, 1, 36500, 30);
     }

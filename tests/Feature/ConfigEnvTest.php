@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
+use RoundlyConsulting\Lifecycle\Actions\PruneAction;
+use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+
 /**
  * Every env var the config file reads, pinned by name: a renamed or misspelt variable would
  * silently fall back to its default in every host.
@@ -40,4 +46,28 @@ it('reads no env var beyond the documented ones', function () use ($variables): 
 
     expect($matches[1])->toHaveCount(count($variables))
         ->and($matches[1])->toEqualCanonicalizing(array_column($variables, 0));
+});
+
+it('reads an empty value of a nullable key as unset', function (string $key): void {
+    config()->set($key, '');
+
+    expect(PruneAction::days($key))->toBeNull();
+})->with(['lifecycle.history.prune_after_days', 'lifecycle.schedules.prune_after_days']);
+
+it('reads an empty rollback window as unlimited and keeps rolling back', function (): void {
+    config()->set('lifecycle.rollback.default_window', '');
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l));
+    $document = Document::factory()->create();
+    $document->transition('go');
+
+    expect(Lifecycles::for($document)->canRollback()->allowed)->toBeTrue()
+        ->and(Artisan::call('about', ['--only' => 'lifecycle']))->toBe(0);
+});
+
+it('prunes nothing when the retention keys are empty', function (): void {
+    config()->set('lifecycle.history.prune_after_days', '');
+    config()->set('lifecycle.schedules.prune_after_days', '');
+
+    expect(Artisan::call('lifecycle:prune'))->toBe(0)
+        ->and(Artisan::output())->toContain('Nothing to prune');
 });

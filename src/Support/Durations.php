@@ -64,11 +64,12 @@ final class Durations
     }
 
     /**
-     * A configured interval where `null` means "none" (e.g. an unlimited rollback window).
+     * A configured interval where `null` means "none" (e.g. an unlimited rollback window) — and
+     * so does an empty env value (`LIFECYCLE_ROLLBACK_DEFAULT_WINDOW=`).
      */
     public static function nullableFromConfig(string $key): ?CarbonInterval
     {
-        return config($key) === null ? null : self::fromConfig($key);
+        return in_array(config($key), [null, ''], true) ? null : self::fromConfig($key);
     }
 
     public static function add(CarbonImmutable $instant, CarbonInterval $interval): CarbonImmutable

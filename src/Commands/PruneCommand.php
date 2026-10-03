@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle\Commands;
 
 use Illuminate\Console\Command;
+use RoundlyConsulting\Lifecycle\Actions\PruneAction;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\PruneOptions;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use Throwable;
@@ -34,7 +35,7 @@ final class PruneCommand extends Command
             return self::FAILURE;
         }
 
-        $configured = $history ?? config('lifecycle.history.prune_after_days') ?? $schedules ?? config('lifecycle.schedules.prune_after_days');
+        $configured = $history ?? PruneAction::days('lifecycle.history.prune_after_days') ?? $schedules ?? PruneAction::days('lifecycle.schedules.prune_after_days');
 
         if ($configured === null) {
             $this->info('Nothing to prune: no retention is configured.');
