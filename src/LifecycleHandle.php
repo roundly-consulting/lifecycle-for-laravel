@@ -112,7 +112,8 @@ final readonly class LifecycleHandle
     }
 
     /**
-     * The stored state — always what the database holds, even when an expiry is overdue.
+     * The lifecycle attribute of the model as loaded — not re-read from the database (reload
+     * the model for that) — and unchanged by an overdue expiry (`effectiveState()` reads that).
      */
     public function state(): BackedEnum|string
     {

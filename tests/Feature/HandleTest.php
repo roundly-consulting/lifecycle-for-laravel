@@ -101,3 +101,11 @@ it('describes a model lifecycle at class level', function (): void {
         ->and($model->graph(GraphFormat::Dot))->toStartWith('digraph "OrderLifecycle"')
         ->and($model->definition()->initial)->toBe('1');
 });
+
+it('reads the state from the model as loaded, as documented', function (): void {
+    $listing = Listing::factory()->create();
+    Listing::query()->findOrFail($listing->id)->transition('publish');
+
+    expect(Lifecycles::for($listing)->state())->toBe(ListingStatus::Draft)
+        ->and(Lifecycles::for($listing->fresh())->state())->toBe(ListingStatus::Active);
+});

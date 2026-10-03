@@ -736,7 +736,7 @@ $handle->isExpired();                  // expires_at has passed (the sweep may n
 $handle->isInGrace();                  // expired, but the expire transition is not due yet
 $handle->isExpiringWithin('3 days');
 $handle->effectiveState();             // ListingStatus::Expired the moment expires_at passes
-$handle->state();                      // always the stored state
+$handle->state();                      // the model's attribute as loaded, even when the expiry is overdue
 
 $handle->extend('7 days');             // expires_at + 7 days
 $handle->renew();                      // now + the state's TTL (or ->renew('14 days'))
