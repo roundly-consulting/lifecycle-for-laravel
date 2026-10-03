@@ -328,27 +328,31 @@ final readonly class GuardPipeline
     }
 
     /**
-     * JSON-encoded parts — no delimiter a value could forge.
+     * JSON-encoded parts — no delimiter a value could forge — URL-encoded, so the rate limiter's
+     * own key cleaning (which collapses HTML entities: `&` → `a`, `é` → `e`) has nothing left to
+     * merge. Per-actor limits of an actor-less call count per subject instead of in one shared
+     * bucket for everyone without an actor.
      */
     private function rateLimitKey(Evaluation $evaluation, RateLimitRule $rule): string
     {
         $context = $evaluation->context;
+        $actor = $context->actor;
         $parts = [];
 
-        if ($rule->per !== RateLimitScope::Subject) {
-            $parts[] = [$context->actor?->getMorphClass(), $context->actor?->getKey()];
+        if ($rule->per !== RateLimitScope::Subject && $actor !== null) {
+            $parts[] = [$actor->getMorphClass(), $actor->getKey()];
         }
 
-        if ($rule->per !== RateLimitScope::Actor) {
+        if ($rule->per !== RateLimitScope::Actor || $actor === null) {
             $parts[] = [$context->subject->getMorphClass(), $context->subject->getKey()];
         }
 
         $prefix = config('lifecycle.rate_limits.prefix', 'lifecycle');
 
-        return json_encode(
+        return rawurlencode(json_encode(
             [is_string($prefix) ? $prefix : 'lifecycle', $evaluation->definition->class, $context->transition->name, $parts],
             JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE,
-        );
+        ));
     }
 
     /**

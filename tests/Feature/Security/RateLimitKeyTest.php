@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\RateLimiter;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
@@ -12,9 +13,14 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\User;
 
 /**
- * Rate-limit keys are JSON-encoded parts — prefix, definition, transition, then the actor
- * and/or subject as [type, key] pairs — so no value can forge another's key.
+ * Rate-limit keys URL-encode JSON-encoded parts — prefix, definition, transition, then the actor
+ * and/or subject as [type, key] pairs — so no value can forge another's key, even through the
+ * rate limiter's own key cleaning.
  */
+function rateLimitKey(array $parts): string
+{
+    return rawurlencode(json_encode($parts, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+}
 function rateLimitedDocument(RateLimitScope $per): Document
 {
     defineDocumentLifecycle(function (LifecycleBuilder $l) use ($per): void {
@@ -32,7 +38,7 @@ it('builds the key from JSON-encoded parts per scope', function (RateLimitScope 
 
     Lifecycles::for($document)->by($user)->apply('go');
 
-    $key = json_encode(['lifecycle', $class, 'go', $parts($user, $document)], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    $key = rateLimitKey(['lifecycle', $class, 'go', $parts($user, $document)]);
 
     expect(RateLimiter::attempts($key))->toBe(1);
 })->with([
@@ -47,7 +53,7 @@ it('keeps a hostile prefix inside its JSON string', function (): void {
 
     $document->transition('go');
 
-    $key = json_encode(['a","go",[["x', app(DefinitionRegistry::class)->of($document)->class, 'go', [[$document->getMorphClass(), $document->id]]], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    $key = rateLimitKey(['a","go",[["x', app(DefinitionRegistry::class)->of($document)->class, 'go', [[$document->getMorphClass(), $document->id]]]);
 
     expect(RateLimiter::attempts($key))->toBe(1);
 });
@@ -62,4 +68,32 @@ it('never shares a counter between actors of different types with the same key',
     expect($document->id)->toBe($user->id)
         ->and(Lifecycles::for($document)->by($user)->can('go'))->toBeFalse()
         ->and(Lifecycles::for($document)->by($document)->can('go'))->toBeTrue();
+});
+
+it('never shares a counter between keys the rate limiter would clean alike', function (): void {
+    Relation::morphMap(['alice' => User::class, '&lice' => Document::class]);
+    $document = rateLimitedDocument(RateLimitScope::Actor);
+    $user = User::factory()->create();
+    $other = Document::factory()->create();
+
+    try {
+        Lifecycles::for($document)->by($user)->apply('go');
+
+        expect($user->getMorphClass())->toBe('alice')
+            ->and($other->getMorphClass())->toBe('&lice')
+            ->and($user->id)->toBe($document->id)
+            ->and(Lifecycles::for($other)->by($document)->can('go'))->toBeTrue();
+    } finally {
+        Relation::morphMap([], false);
+    }
+});
+
+it('limits actor-less calls of a per-actor limit per subject, not in one shared bucket', function (): void {
+    $documents = [rateLimitedDocument(RateLimitScope::Actor), Document::factory()->create(), Document::factory()->create()];
+
+    $codes = array_map(fn (Document $document): array => Lifecycles::for($document)->attempt('go')->decision->codes(), $documents);
+    $documents[0]->transition('back');
+
+    expect($codes)->toBe([[], [], []])
+        ->and(Lifecycles::for($documents[0])->check('go')->codes())->toBe(['rate_limited']);
 });

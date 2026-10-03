@@ -410,7 +410,7 @@ container on every run. `define()` must not read request state; dynamic values b
 | `notAfter('deadline' \| fn (Model $m) => ?instant, offset: null)` | Not allowed after an instant. The instant itself is still allowed. |
 | `maxOccurrences(3)` | Per subject; counted from the state record, so pruning history never resets it. |
 | `cooldown('1 hour')` | Minimum time between two runs of this transition (user context). |
-| `rateLimit(10, '1 hour', RateLimitScope::Actor)` | Through Laravel's `RateLimiter`; per `Actor`, `Subject` or `ActorAndSubject`. |
+| `rateLimit(10, '1 hour', RateLimitScope::Actor)` | Through Laravel's `RateLimiter`; per `Actor`, `Subject` or `ActorAndSubject` (a call without an actor counts per subject). |
 | `ignoresFreeze()`, `ignoresSeal()`, `ignoresMinDwell()` | Exemptions. |
 | `handledBy($handler)` | A `TransitionHandler` (class, instance or closure) run inside the transaction. |
 | `irreversible()`, `reversible(within: '1 hour', withoutCompensation: false)` | Rollback rules. |
