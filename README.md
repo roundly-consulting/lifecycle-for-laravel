@@ -19,8 +19,18 @@
 
 # Lifecycle for Laravel
 
-Status lifecycles for Eloquent models: named transitions behind one guard pipeline, limits and
-race-free quotas, expiry and scheduled transitions, rollbacks and an append-only history.
+Status lifecycles for any Eloquent model with a status — orders, tickets, listings,
+subscriptions, applications. A state machine for Eloquent models: named transitions behind one
+guard pipeline, limits and race-free quotas, expiry and scheduled transitions, rollbacks and an
+append-only history.
+
+| Model | Typical lifecycle |
+|---|---|
+| Order | pending → paid → shipped, refunded; payment status as a second lifecycle |
+| Ticket | new → open → waiting → resolved, reopened at most 3 times |
+| Listing | draft → active → expired after 30 days, at most 5 active per customer |
+| Subscription | trial → active → grace → cancelled, renewed or reactivated |
+| Application | submitted → in review → approved or rejected, undo within an hour |
 
 - **Define once** — states (a backed enum or strings), an initial state, terminal states and named
   transitions (several sources, `*` wildcard) in a small definition class. Several lifecycles per
@@ -37,14 +47,26 @@ race-free quotas, expiry and scheduled transitions, rollbacks and an append-only
   windows, irreversible transitions, attribute snapshots, compensating handlers and restored
   schedules and counters. History is append-only: actor, reason, context and snapshot per row.
 - **Safe under concurrency** — a row lock plus a compare-and-swap write per transition, a documented
-  lock order, after-commit events and idempotency keys, tested with forked processes on PostgreSQL
-  and MySQL.
+  lock order, after-commit events and idempotency keys; proven race-free under real concurrent load
+  on PostgreSQL and MySQL.
 - **Developer experience** — `Lifecycles::for($model)` handles, a `HasLifecycle` trait, query scopes, a
-  cast, validation rules, API resources, Mermaid/DOT graphs, seven Artisan commands and a real
-  `Lifecycles::fake()`.
+  cast, validation rules, API resources, Mermaid/DOT graphs, seven Artisan commands (including a
+  `make:lifecycle` generator) and a real `Lifecycles::fake()`.
+
+## What makes it different
+
+- **Quotas that hold.** "At most 5 active listings per customer" is enforced by the engine, not by a
+  count before the save — two simultaneous requests cannot both take the last slot.
+- **Time is built in.** States expire, warn once before they do, sit in a grace period, and can be
+  extended, renewed or scheduled for later — one scheduled command runs it all.
+- **Undo is a feature, not a migration.** Roll back the last change or to a point in history, with
+  time windows, irreversible steps, compensating handlers and conflict detection.
+- **A real test fake.** `Lifecycles::fake()` refuses what the real engine refuses structurally,
+  remembers its own freezes and schedules, and ships assertions for every change it records.
 
 ## Contents
 
+- [What makes it different](#what-makes-it-different)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -108,8 +130,8 @@ php artisan vendor:publish --tag="lifecycle-config"
 php artisan vendor:publish --tag="lifecycle-translations"
 ```
 
-If any state has a TTL, or you schedule transitions, run the sweep every minute. Pruning is
-optional:
+If any state has a TTL, or you schedule transitions, run the sweep every minute (`php artisan
+about` and `lifecycle:validate` tell you when it is missing). Pruning is optional:
 
 ```php
 // routes/console.php
@@ -120,6 +142,13 @@ Schedule::command('lifecycle:prune')->daily();
 ```
 
 ## Quick start
+
+Generate a definition class (`app/Lifecycles/ListingLifecycle.php`), from a backed enum or as a small
+string-state example to edit:
+
+```bash
+php artisan make:lifecycle ListingLifecycle --enum="App\Enums\ListingStatus"
+```
 
 ```php
 enum ListingStatus: string
@@ -317,8 +346,10 @@ return [
 | `rate_limits.prefix` | string | `lifecycle` | — | Prefix of the rate-limiter keys of `rateLimit()` transitions. |
 | `graph.default_format` | `mermaid`\|`dot` | `mermaid` | — | Graph format when none is given. |
 
-Booleans accept `true/false/1/0/yes/no/on/off`. A value outside its range throws
-`InvalidLifecycleConfigurationException`. `php artisan about` shows a **Lifecycle** section.
+Booleans accept `true/false/1/0/yes/no/on/off` (an empty value is false); any other value throws
+the toolkit's `InvalidConfigurationException`, so a typo never silently falls back to the default.
+A number or interval outside its range throws `InvalidLifecycleConfigurationException`.
+`php artisan about` shows a **Lifecycle** section.
 
 ## Usage
 
@@ -412,13 +443,22 @@ Lifecycles::for($order)->apply('pay');                         // the first life
 Lifecycles::for($order, 'payment_status')->apply('authorize'); // another one
 ```
 
-The lifecycle columns are plain string (or integer) columns on your table; the package adds its own
-tables for records, history, schedules and quota locks. Add an index on the state column plus any
-quota scope columns, for example `$table->index(['status', 'user_id'])`.
+The lifecycle columns are plain string (or integer) columns on your own table; the package adds its
+own tables for records, history, schedules and quota locks. Add the column in a migration:
+
+```php
+Schema::table('listings', function (Blueprint $table): void {
+    $table->string('status', 64)->nullable()->index();   // int-backed enum: unsignedSmallInteger
+});
+```
+
+No database default is needed: a new model starts in the initial state. Index the column together
+with any quota scope columns, for example `$table->index(['status', 'user_id'])`. List the model in
+`lifecycle.subjects` so `lifecycle:validate` checks it.
 
 `HasLifecycle` adds the relations `lifecycleStates()`, `lifecycleHistory()`,
-`lifecycleSchedules()` and `lifecycleLatestTransitions()`, the methods `lifecycle()`, `transition()`, `transitionTo()`,
-`canTransition()` and `canTransitionTo()`, and the scopes below. These names are reserved on the
+`lifecycleSchedules()` and `lifecycleLatestTransitions()`, the methods `lifecycle()`,
+`transition()`, `transitionTo()`, `canTransition()` and `canTransitionTo()`, and the scopes below. These names are reserved on the
 model. A relation or attribute called `lifecycle` or `transition` must be renamed, or use the
 facade (`Lifecycles::for($model)`), which needs no trait method.
 
@@ -521,6 +561,14 @@ Reads on the handle: `state()`, `effectiveState()`, `is(...$states)`, `isTermina
 `frozenUntil()`, `frozenReason()`, `scheduled()`, `expiresAt()`, `isExpired()`, `isInGrace()`,
 `isExpiringWithin('3 days')`.
 
+Checks on the handle: `can()`, `canTransitionTo()`, `check()`, `checkTransitionTo()`,
+`allowedTransitions()`, `allowedStates()`, `canRollback()`, `canRollbackTo()`.
+
+Changes on the handle: `apply()`, `attempt()`, `transitionTo()`, `rollback()`, `rollbackTo()`,
+`freeze()`, `unfreeze()`, `schedule()`, `cancelScheduled()`, `retryScheduled()`, `expireAt()`,
+`extend()`, `renew()`, `neverExpire()`, `adopt()`. Context for the next call: `by()`, `asSystem()`,
+`because()`, `with()`, `expectingVersion()`, `idempotencyKey()`.
+
 ### Restrictions
 
 The pipeline runs these checks in a fixed order. The first three are structural and stop
@@ -602,7 +650,7 @@ ignoring global scopes, so a console sweep counts the same as a tenant request. 
 transition or rollback **enters** the state; creation, direct writes and self-transitions are not
 counted, and a quota on the initial state is a definition error. Concurrent entries are
 serialised through a lock row per scope value, so a burst of requests cannot exceed the limit (proven
-with eight forked processes on PostgreSQL and MySQL). A quota of `0` refuses everyone.
+race-free under real concurrent load on PostgreSQL and MySQL). A quota of `0` refuses everyone.
 
 Changing a scope column of a model that is already in a quota'd state (moving a listing from user
 A to user B with a normal `save()`) is not re-checked.
@@ -904,13 +952,16 @@ $request->validate([
 ]);
 ValidTransition::for($listing)->toState();     // the input is a target state instead of a name
 
-// A refusal as a 422, with payload errors under their own keys
+// A refusal as a 422, with payload errors under their own keys ($request is a FormRequest)
 try {
-    Lifecycles::for($listing)->by($request->user())->with($request->all())->apply('reopen');
+    Lifecycles::for($listing)->by($request->user())->with($request->validated())->apply('reopen');
 } catch (TransitionDeniedException $e) {
     throw $e->toValidationException();
 }
 ```
+
+Pass only validated input, never `$request->all()`. The transition validates the payload again
+with its own `rules()` and keeps only those keys.
 
 `LifecycleResource` returns `lifecycle`, `state`, `state_label`, `terminal`, `entered_at`, `version`,
 `frozen` (`until`, `reason`), `expiry` (`expires_at`, `due_at`, `in_grace`), `allowed_transitions`
@@ -961,10 +1012,11 @@ app(ApplyTransitionAction::class)->execute(new TransitionRequest(
 ));
 ```
 
-Every handle method has a manager method that takes a request DTO: `apply`, `attempt`, `check`,
-`available`, `rollback`, `checkRollback`, `freeze`, `unfreeze`, `schedule`, `cancelScheduled`,
-`changeExpiry`, `adopt`, `adoptAll`, `runDueSchedules`, `sendExpiryWarnings`, `retrySchedule`,
-`sweep`, `prune` and `allowDirectWrites`.
+Every handle check and change goes through a manager method, most of them taking a request DTO:
+`apply`, `attempt`, `check`, `available`, `rollback`, `checkRollback`, `freeze`, `unfreeze`,
+`schedule`, `cancelScheduled`, `changeExpiry`, `adopt`, `adoptAll`, `runDueSchedules`,
+`sendExpiryWarnings`, `retrySchedule`, `sweep`, `prune` and `allowDirectWrites`. Reads are
+handle-only.
 
 ### Events
 
@@ -992,7 +1044,7 @@ the fake fire nothing.
 | `make:lifecycle {name} {--enum=} {--force}` | Generates a definition class in `App\Lifecycles`: a small valid example, or the cases of a backed enum as states (starting in the first case). `vendor:publish --tag=lifecycle-stubs` lets you edit the stubs. |
 | `lifecycle:sweep {--limit=} {--queue} {--no-warnings}` | Sends due warnings and runs due expiries and scheduled transitions. Isolatable. |
 | `lifecycle:graph {definition} {--format=mermaid\|dot} {--output=}` | Prints or writes a graph. `definition` is a definition class or `Model:attribute` (class name or morph alias). |
-| `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Without arguments: every lifecycle of every model in `lifecycle.subjects`. Exit 1 on errors (or, with `--strict`, on warnings or when there is nothing to validate). |
+| `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Without arguments: every lifecycle of every model in `lifecycle.subjects`. Warns when a definition has expiries or system transitions but `lifecycle:sweep` is not scheduled. Exit 1 on errors (or, with `--strict`, on warnings or when there is nothing to validate). |
 | `lifecycle:show {subject} {id} {--lifecycle=} {--history=10}` | One subject's state, entry time, version, freeze, expiry, what the system could do next, and recent history. |
 | `lifecycle:adopt {model} {--lifecycle=} {--chunk=500} {--no-expiry}` | Reconciles every row of a model (missing records, drift, `NULL` states). |
 | `lifecycle:prune {--history-days=} {--schedule-days=} {--dry-run}` | Deletes old history rows and finished schedules (defaults from config). |
@@ -1077,8 +1129,9 @@ expiries.
   transaction is lost. Keep external side effects in after-commit listeners.
 - **Bulk writes** (`Model::query()->update()`, raw SQL) bypass the engine and are adopted later; see
   [Strict writes and drift](#strict-writes-and-drift).
-- **Octane and queues.** Compiled definitions are immutable and shared; guards, handlers, Gate, rate
-  limiter and auth are resolved per call; `allowDirectWrites()` is scoped to the request or job.
+- **Octane and queues.** Compiled definitions are immutable and shared; the manager keeps no state
+  and resolves actions, guards, handlers, Gate, rate limiter and auth from the current container on
+  every call (even when it was built at boot); `allowDirectWrites()` is scoped to the request or job.
 
 ### Evolving a definition
 

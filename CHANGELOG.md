@@ -20,8 +20,8 @@ Initial public release.
 - One guard pipeline for `can()`, `check()`, `allowedTransitions()` and `apply()`: Gate abilities,
   actor rules, system-only transitions, required reasons, payload validation with sensitive keys
   (a payload sent to a transition without `rules()` is refused, never silently dropped), custom
-  guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a
-  structured, translated `Denial`.
+  guards, `notBefore` / `notAfter` deadlines, freezes and seals. Every refusal is a structured,
+  translated `Denial`.
 - Limits: maximum occurrences, cooldowns, minimum time in a state, per-actor or per-subject rate
   limits and race-free quotas per scope column, with a fixed or per-subject maximum.
 - Transactions with a subject row lock and a compare-and-swap state write, optimistic versions
@@ -39,9 +39,9 @@ Initial public release.
   `Lifecycles::schedules()->due()` / `failed()` list schedules with their subject and outcome;
   `schedules()->retry($id)` and `for($model)->retryScheduled($transition)` put a failed one back.
 - Rollbacks: undo the last transition or roll back to a history point (`canRollback()` /
-  `canRollbackTo()` ask first), all or nothing, with
-  windows, irreversible transitions, compensating handlers, snapshot conflict detection and
-  restored stamps, counters, entry times and schedules.
+  `canRollbackTo()` ask first), all or nothing, with windows, irreversible transitions,
+  compensating handlers, snapshot conflict detection and restored stamps, counters, entry times
+  and schedules.
 - An append-only history (actor, reason, context, snapshot) and `lifecycle:prune`.
 - Strict state writes, drift adoption and `lifecycle:adopt` for existing tables.
 - Query scopes: `whereState`, `whereNotState`, `whereExpired`, `whereNotExpired`,

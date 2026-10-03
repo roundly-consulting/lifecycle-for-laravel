@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
@@ -22,6 +24,7 @@ use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Enums\GraphFormat;
 use RoundlyConsulting\Lifecycle\Enums\RateLimitScope;
+use RoundlyConsulting\Lifecycle\Events\ScheduledTransitionFailed;
 use RoundlyConsulting\Lifecycle\Exceptions\DirectStateWriteException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
@@ -264,7 +267,17 @@ it('runs the schedule and sweep snippets', function (): void {
         ->and(Lifecycles::sweep()->executed)->toBe(1)
         ->and($listing->fresh()?->status)->toBe(ListingStatus::Active)
         ->and(Lifecycles::schedules()->runDue()->total())->toBe(0)
-        ->and(Lifecycles::schedules()->retry($scheduled->id))->toBeFalse();
+        ->and(Lifecycles::schedules()->failed())->toHaveCount(0)
+        ->and(Lifecycles::schedules()->retry($scheduled->id))->toBeFalse()
+        ->and(Lifecycles::for($listing)->retryScheduled('publish'))->toBeFalse();
+
+    $alerts = [];
+    Event::listen(function (ScheduledTransitionFailed $event) use (&$alerts): void {
+        $alerts[] = ['schedule' => $event->scheduleId, 'transition' => $event->transition];
+    });
+    Event::dispatch(new ScheduledTransitionFailed(1, 'listing', 1, 'status', 'publish', [], 5, true));
+
+    expect($alerts)->toBe([['schedule' => 1, 'transition' => 'publish']]);
 
     Bus::fake();
     Lifecycles::for($listing)->by($editor)->schedule('close', CarbonImmutable::now());
@@ -301,6 +314,7 @@ it('runs the rollback and history snippets', function (): void {
     Lifecycles::for($listing)->apply('close');
 
     expect(Lifecycles::for($listing)->canRollback()->allowed)->toBeTrue()
+        ->and(Lifecycles::for($listing)->canRollbackTo($record ?? throw new LogicException)->allowed)->toBeTrue()
         ->and(Lifecycles::for($listing)->rollback(force: true)->to)->toBe(ListingStatus::Active);
 
     Lifecycles::for($listing)->apply('close');
@@ -363,8 +377,9 @@ it('renders the README graph and runs the definition helpers', function (): void
 it('runs the resource, validation and cast snippets', function (): void {
     $user = User::factory()->create();
     $listing = readmeListing($user, ListingStatus::Closed);
-    $request = Request::create('/', 'POST', ['transition' => 'reopen', 'status' => 'active']);
+    $request = ReadmeReopenRequest::createFrom(Request::create('/', 'POST', ['transition' => 'reopen', 'status' => 'active']));
     $request->setUserResolver(fn () => $user);
+    $request->setContainer(app())->setRedirector(app('redirect'))->validateResolved();
 
     $resource = LifecycleResource::make(Lifecycles::for($listing)->by($request->user()))->resolve();
     $history = TransitionRecordResource::collection(Lifecycles::for($listing)->history())->resolve();
@@ -376,12 +391,16 @@ it('runs the resource, validation and cast snippets', function (): void {
     ])->errors()->all();
 
     try {
-        Lifecycles::for($listing)->by($request->user())->with($request->all())->apply('reopen');
+        Lifecycles::for($listing)->by($request->user())->with($request->validated())->apply('reopen');
     } catch (TransitionDeniedException $e) {
         $exception = $e->toValidationException();
     }
 
+    $list = LifecycleResource::collection(Listing::query()->withLifecycle()->get())->resolve();
+
     expect($resource['state'])->toBe('closed')
+        ->and($list)->toHaveCount(1)
+        ->and($list[0]['state'])->toBe('closed')
         ->and(array_column($resource['allowed_transitions'], 'requires_reason'))->toBe([true, false])
         ->and($history)->toHaveCount(3)
         ->and((new TransitionRecordResource($record))->withContext()->resolve())->toHaveKey('context')
@@ -442,6 +461,17 @@ it('runs the fake snippet', function (): void {
 /**
  * Stand-ins for the README's host collaborators.
  */
+final class ReadmeReopenRequest extends FormRequest
+{
+    /**
+     * @return array<string, string>
+     */
+    public function rules(): array
+    {
+        return ['note' => 'nullable|string|max:500'];
+    }
+}
+
 final readonly class ReadmeBilling
 {
     public function __construct(public bool $paid) {}
