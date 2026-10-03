@@ -193,7 +193,7 @@ final readonly class ScheduleBook
             'pending_slot' => null,
             'cancelled_by_transition_id' => $historyId,
             'finished_at' => Clock::format($now),
-            'updated_at' => $subject->freshTimestampString(),
+            'updated_at' => ScheduleModel::newFor($subject)->freshTimestampString(),
         ]);
     }
 
@@ -415,6 +415,6 @@ final readonly class ScheduleBook
             ->where('subject_id', $subject->getKey())
             ->where('status', $from->value)
             ->toBase()
-            ->update(['status' => $to->value, 'updated_at' => $subject->freshTimestampString()]);
+            ->update(['status' => $to->value, 'updated_at' => ScheduleModel::newFor($subject)->freshTimestampString()]);
     }
 }

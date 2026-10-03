@@ -7,19 +7,23 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepResult;
 use RoundlyConsulting\Lifecycle\Engine\ScheduleRun;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\UnknownLifecycleException;
 use RoundlyConsulting\Lifecycle\Jobs\RunScheduledTransitionJob;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
+use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
+use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
- * The sweep: expiry warnings (optional), then every due schedule in keyset batches by
- * `(due_at, id)` — one transaction per schedule, inline or as a queued job. Bounded by
+ * The sweep: paused rows of subjects restored without model events resumed, expiry warnings
+ * (optional), then every due schedule in keyset batches by `(due_at, id)` — one transaction per schedule, inline or as a queued job. Bounded by
  * `schedules.max_per_run` (or the given limit). Always at the clock's now.
  */
 final readonly class RunDueSchedulesAction
@@ -37,6 +41,7 @@ final readonly class RunDueSchedulesAction
         $limit = $options->limit ?? $config->intBetween('lifecycle.schedules.max_per_run', 1, 1000000, 10000);
         $batch = $config->intBetween('lifecycle.schedules.batch_size', 1, 10000, 500);
         $queue = $options->queue ?? Config::boolean('lifecycle.schedules.queue.enabled');
+        $this->resumeRestored();
         $warned = $options->warnings ? $this->warnings->execute($options) : 0;
 
         $now = Clock::now();
@@ -98,5 +103,42 @@ final readonly class RunDueSchedulesAction
             skipped: $counts[ScheduleRun::Skipped->value],
             queued: $counts['queued'],
         );
+    }
+
+    /**
+     * Rows stay `paused` while their subject is soft-deleted; the `restored` model event resumes
+     * them. A restore that fires no event (`restoreQuietly()`, a query-builder `restore()`) is
+     * caught here: paused rows whose subject row exists and is not trashed are pending again.
+     */
+    private function resumeRestored(): void
+    {
+        $types = ScheduleModel::query()->where('status', ScheduleStatus::Paused->value)->distinct()->pluck('subject_type')->all();
+
+        foreach ($types as $type) {
+            try {
+                $class = SubjectResolver::classFor((string) $type);
+            } catch (UnknownLifecycleException) {
+                continue;
+            }
+
+            $subject = new $class;
+            $rows = ScheduleModel::query()->where('status', ScheduleStatus::Paused->value)->where('subject_type', $type);
+            $table = $rows->getModel()->getTable();
+
+            $rows->whereExists(static function (QueryBuilder $live) use ($subject, $table): void {
+                $live->selectRaw('1')
+                    ->from($subject->getTable())
+                    ->whereColumn($subject->getQualifiedKeyName(), $table.'.subject_id');
+
+                if (SoftDeletion::uses($subject)) {
+                    $live->whereNull(SoftDeletion::qualifiedColumn($subject));
+                }
+            });
+
+            $rows->toBase()->update([
+                'status' => ScheduleStatus::Pending->value,
+                'updated_at' => $rows->getModel()->freshTimestampString(),
+            ]);
+        }
     }
 }

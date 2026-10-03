@@ -769,8 +769,9 @@ each in its own transaction, in system context:
   says), up to `schedules.max_attempts`, then `failed`. A permanent denial fails at once. Both
   fire `ScheduledTransitionFailed`.
 - **Frozen subject:** deferred, without using up an attempt.
-- **Soft-deleted subject:** its schedules are paused until it is restored. A deleted subject
-  cancels its schedules.
+- **Soft-deleted subject:** its schedules are paused until it is restored (a restore without model
+  events, such as `restoreQuietly()`, is picked up by the next sweep). A deleted subject cancels its
+  schedules.
 - **An exception:** it is reported to your exception handler and counted as an attempt. The rest of
   the sweep continues. A warning that throws is reported too and never stops the sweep; a warning
   whose model, lifecycle or state no longer exists stops warning.
