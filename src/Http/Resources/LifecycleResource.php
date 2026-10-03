@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Http\Resources;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\App;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
@@ -19,7 +20,8 @@ use RoundlyConsulting\Lifecycle\LifecycleManager;
  * the current state — refused ones too, with their reasons, so a UI can show disabled
  * buttons. Checked for the handle's actor (`Lifecycles::for($listing)->by($user)`); a model
  * stands for its primary lifecycle with the actor from auth, so
- * `LifecycleResource::collection(Listing::query()->withLifecycle()->get())` works.
+ * `LifecycleResource::collection(Listing::query()->withLifecycle()->get())` works —
+ * `LifecycleResource::collectionFor($orders, 'payment_status')` renders another lifecycle.
  *
  * @property LifecycleHandle $resource
  */
@@ -28,6 +30,24 @@ final class LifecycleResource extends JsonResource
     public function __construct(LifecycleHandle|Model $resource)
     {
         parent::__construct($resource instanceof Model ? App::make(LifecycleManager::class)->for($resource) : $resource);
+    }
+
+    /**
+     * One lifecycle of every subject — `collection()` renders their primary one. Eager-load
+     * them with `withLifecycle()` and it reads no row per subject either.
+     *
+     * @param  iterable<Model>  $subjects
+     */
+    public static function collectionFor(iterable $subjects, string $lifecycle): AnonymousResourceCollection
+    {
+        $manager = App::make(LifecycleManager::class);
+        $handles = [];
+
+        foreach ($subjects as $subject) {
+            $handles[] = $manager->for($subject, $lifecycle);
+        }
+
+        return self::collection($handles);
     }
 
     /**

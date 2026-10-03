@@ -107,3 +107,25 @@ it('finds no record in an eager-loaded set without the lifecycle', function (): 
         ->and(app(StateRecords::class)->find($loaded, 'status')?->lifecycle)->toBe('status')
         ->and(app(StateRecords::class)->find($order, 'payment_status')?->lifecycle)->toBe('payment_status');
 });
+
+it('renders another lifecycle of a collection, in a constant number of queries', function (): void {
+    $render = function (int $count): array {
+        Order::query()->delete();
+        Order::factory()->count($count)->create()->each(fn (Order $order) => Lifecycles::for($order, 'payment_status')->apply('authorize'));
+        $models = Order::query()->withLifecycle()->get();
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+
+        $rows = LifecycleResource::collectionFor($models, 'payment_status')->toArray(new Request);
+
+        return [$queries, array_unique(array_column($rows, 'lifecycle')), array_unique(array_column($rows, 'state'))];
+    };
+
+    $one = $render(1);
+    $three = $render(3);
+
+    expect($three)->toBe($one)
+        ->and($one)->toBe([0, ['payment_status'], ['authorized']]);
+});

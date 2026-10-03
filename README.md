@@ -954,6 +954,8 @@ return LifecycleResource::make(Lifecycles::for($listing)->by($request->user()));
 
 // A list: a model stands for its primary lifecycle, with the actor from auth
 return LifecycleResource::collection(Listing::query()->withLifecycle()->get());
+// Another lifecycle of every model in a list
+return LifecycleResource::collectionFor(Order::query()->withLifecycle()->get(), 'payment_status');
 
 // History rows (context and snapshot only on request)
 return TransitionRecordResource::collection(Lifecycles::for($listing)->history());

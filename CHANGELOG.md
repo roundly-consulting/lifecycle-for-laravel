@@ -48,7 +48,8 @@ Initial public release.
   `whereExpiringWithin`, `whereInGrace`, `whereFrozen`, `whereInStateFor` and `withLifecycle`.
 - `LifecycleResource` (also straight from a model, so
   `LifecycleResource::collection(Listing::query()->withLifecycle()->get())` reads state, freeze,
-  expiry and the last transition without a query per model) and `TransitionRecordResource`, the
+  expiry and the last transition without a query per model; `collectionFor($models, 'payment_status')`
+  renders another lifecycle the same way) and `TransitionRecordResource`, the
   `ValidTransition` and `ValidState` rules and the `AsLifecycleState` cast.
 - A `make:lifecycle` generator (string states or `--enum`, publishable stubs), Mermaid and DOT
   graphs (`lifecycle:graph`) and `lifecycle:show`.
