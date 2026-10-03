@@ -27,6 +27,7 @@ use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioned;
 use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioning;
 use RoundlyConsulting\Lifecycle\Exceptions\ConcurrentTransitionException;
 use RoundlyConsulting\Lifecycle\Exceptions\IdempotencyConflictException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
@@ -220,7 +221,7 @@ final readonly class TransitionExecutor
         });
 
         $after = Snapshotter::stored($subject, $captured);
-        $stored = Config::boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [];
+        $stored = Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [];
         $stored = [...$stored, ...$extraContext];
         $version = $record->version + 1;
 

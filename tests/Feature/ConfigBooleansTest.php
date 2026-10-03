@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
-use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
+use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 
 /**
  * Env strings for every boolean key: `off`/`no`/`0`/`false`/`''` are false, `on`/`yes`/`1`/`true`
@@ -45,5 +48,22 @@ it('reads transactions.mysql_read_committed as a boolean', function (string|bool
 it('refuses a boolean it cannot parse instead of falling back to the default', function (string $key): void {
     config()->set($key, 'disabled');
 
-    expect(fn () => Artisan::call('about', ['--only' => 'lifecycle']))->toThrow(InvalidConfigurationException::class, 'disabled');
+    expect(fn () => Artisan::call('about', ['--only' => 'lifecycle']))->toThrow(InvalidLifecycleConfigurationException::class, 'disabled');
 })->with(['lifecycle.strict_writes', 'lifecycle.actor.from_auth', 'lifecycle.schedules.queue.enabled', 'lifecycle.transactions.mysql_read_committed']);
+
+it('throws the package exception for a junk boolean on every path that reads one', function (string $key, Closure $read): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l));
+    $document = Document::factory()->create();
+    config()->set($key, 'disabled');
+
+    expect(fn () => $read($document))->toThrow(InvalidLifecycleConfigurationException::class, 'disabled');
+})->with([
+    'store_payload' => ['lifecycle.history.store_payload', fn (Document $d) => $d->transition('go')],
+    'purge_on_force_delete' => ['lifecycle.history.purge_on_force_delete', fn (Document $d) => $d->forceDelete()],
+    'strict_writes' => ['lifecycle.strict_writes', function (Document $d): void {
+        $d->setAttribute('status', 'b');
+        $d->save();
+    }],
+    'actor.from_auth' => ['lifecycle.actor.from_auth', fn (Document $d) => Lifecycles::for($d)->check('go')],
+    'queue.enabled' => ['lifecycle.schedules.queue.enabled', fn () => Lifecycles::sweep()],
+]);

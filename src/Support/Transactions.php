@@ -49,7 +49,7 @@ final class Transactions
     {
         $connection = $subject->getConnection();
         $attempts = self::attempts();
-        $enabled = Config::boolean('lifecycle.transactions.mysql_read_committed', true);
+        $enabled = Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.transactions.mysql_read_committed', true);
 
         for ($attempt = 1; ; $attempt++) {
             $level = $connection->transactionLevel();

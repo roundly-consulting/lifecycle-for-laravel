@@ -51,6 +51,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\DirectStateWriteException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Support\WriteGuard;
@@ -298,7 +299,7 @@ class LifecycleManager
                 continue;
             }
 
-            if (Config::boolean('lifecycle.strict_writes', true) && ! $guard->allowsDirectWrites()) {
+            if (Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.strict_writes', true) && ! $guard->allowsDirectWrites()) {
                 throw DirectStateWriteException::for($subject, $lifecycle);
             }
 

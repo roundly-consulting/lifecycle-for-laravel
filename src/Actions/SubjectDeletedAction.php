@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
@@ -36,7 +37,7 @@ final readonly class SubjectDeletedAction
             return;
         }
 
-        if (! Config::boolean('lifecycle.history.purge_on_force_delete', true)) {
+        if (! Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.history.purge_on_force_delete', true)) {
             return;
         }
 

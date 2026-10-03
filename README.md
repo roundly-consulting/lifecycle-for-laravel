@@ -347,9 +347,10 @@ return [
 | `graph.default_format` | `mermaid`\|`dot` | `mermaid` | — | Graph format when none is given. |
 
 Booleans accept `true/false/1/0/yes/no/on/off` (an empty value is false); any other value throws
-the toolkit's `InvalidConfigurationException`, so a typo never silently falls back to the default.
+`InvalidLifecycleConfigurationException`, so a typo never silently falls back to the default.
 `key_type` and `actor_key_type` accept only `bigint`, `uuid` or `ulid` (case-insensitive); anything
-else, an empty value included, throws the same toolkit exception during `migrate` and `about`.
+else, an empty value included, throws the toolkit's `InvalidConfigurationException` (not a
+`LifecycleException`) during `migrate` and `about`.
 Numbers must be canonical integers (`'5.5'`, `'+5'`, `'1e3'` and an empty value throw; an empty
 value of a nullable key such as `LIFECYCLE_HISTORY_PRUNE_AFTER_DAYS=` reads as unset), and a number
 or interval outside its range throws `InvalidLifecycleConfigurationException`.

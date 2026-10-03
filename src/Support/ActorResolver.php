@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Lifecycle\Support;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
@@ -41,7 +42,7 @@ final readonly class ActorResolver
             return null;
         }
 
-        if ($explicit !== null || ! Config::boolean('lifecycle.actor.from_auth', true)) {
+        if ($explicit !== null || ! Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.actor.from_auth', true)) {
             return $explicit;
         }
 

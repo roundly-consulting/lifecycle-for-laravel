@@ -45,6 +45,7 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\IdempotencyConflictException;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
@@ -183,7 +184,7 @@ final class LifecycleFake extends LifecycleManager
                 actorId: $evaluation->context->actor?->getKey(),
                 system: $request->system,
                 reason: $request->reason,
-                context: Config::boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [],
+                context: Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.history.store_payload', true) ? $evaluation->storedContext : [],
                 snapshot: null,
                 version: $this->sequence,
                 revertsId: null,
