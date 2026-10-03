@@ -36,6 +36,8 @@ Initial public release.
 - Scheduled transitions and a `lifecycle:sweep` command that runs warnings, expiries and schedules
   in batches, inline or as unique queued jobs, with retries, deferral while frozen and isolated
   errors. `php artisan about` and `lifecycle:validate` say when the sweep is not scheduled.
+  `Lifecycles::schedules()->due()` / `failed()` list schedules with their subject and outcome;
+  `schedules()->retry($id)` and `for($model)->retryScheduled($transition)` put a failed one back.
 - Rollbacks: undo the last transition or roll back to a history point (`canRollback()` /
   `canRollbackTo()` ask first), all or nothing, with
   windows, irreversible transitions, compensating handlers, snapshot conflict detection and

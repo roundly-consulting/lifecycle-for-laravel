@@ -37,6 +37,7 @@ use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
+use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 
@@ -366,6 +367,27 @@ final readonly class LifecycleHandle
     public function cancelScheduled(string $transition): bool
     {
         return $this->manager->cancelScheduled(new CancelScheduleRequest($this->subject, $this->lifecycle, $transition));
+    }
+
+    /**
+     * Put this subject's newest failed schedule of a transition back to pending (an expiry is
+     * named by its expiry transition); false when there is none. Never touches another
+     * subject's schedules.
+     */
+    public function retryScheduled(string $transition): bool
+    {
+        if (! $this->subject->exists) {
+            return false;
+        }
+
+        $failed = ScheduleModel::of($this->subject, $this->lifecycle)
+            ->where('transition', $transition)
+            ->where('status', ScheduleStatus::Failed->value)
+            ->orderByDesc('finished_at')
+            ->orderByDesc('id')
+            ->first();
+
+        return $failed !== null && $this->manager->retrySchedule($failed->id);
     }
 
     /**

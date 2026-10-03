@@ -700,6 +700,7 @@ $scheduled = Lifecycles::for($listing)->by($editor)->because('Launch')->schedule
 
 Lifecycles::for($listing)->scheduled();                 // list<ScheduledTransition>
 Lifecycles::for($listing)->cancelScheduled('publish');  // bool
+Lifecycles::for($listing)->retryScheduled('publish');   // bool: this listing's newest failed one, back to pending
 ```
 
 Scheduling checks the actor rules, reason and payload now, against the stored state. Time rules,
@@ -724,7 +725,19 @@ Lifecycles::sweep(limit: 100, queue: true);           // dispatch RunScheduledTr
 Lifecycles::schedules()->runDue();                    // due schedules only
 Lifecycles::schedules()->warn();                      // warnings only
 Lifecycles::schedules()->due();                       // Collection<ScheduledTransition>, read-only
+Lifecycles::schedules()->failed();                    // Collection<ScheduledTransition>, most recently failed first
 Lifecycles::schedules()->retry($scheduleId);          // failed → pending, attempts reset
+```
+
+A `ScheduledTransition` says which subject it belongs to (`subjectType`, `subjectId`) and, once it
+has finished, how it ended (`status`, `outcome`, `lastDenial`, `finishedAt`). An expiry is retried
+by the name of its expiry transition (`retryScheduled('expire')`). To be alerted when a schedule
+gives up, listen for `ScheduledTransitionFailed`:
+
+```php
+Event::listen(function (ScheduledTransitionFailed $event): void {
+    Log::warning('Scheduled transition failed', ['schedule' => $event->scheduleId, 'transition' => $event->transition]);
+});
 ```
 
 With queueing on, each schedule gets one unique job, even when the queue stalls between sweeps.

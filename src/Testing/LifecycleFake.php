@@ -33,6 +33,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
 use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
+use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Enums\DenialCode;
 use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
@@ -356,6 +357,8 @@ final class LifecycleFake extends LifecycleManager
             status: ScheduleStatus::Pending,
             attempts: 0,
             nextWarnAt: null,
+            subjectType: $request->subject->getMorphClass(),
+            subjectId: StateRecords::key($request->subject),
         );
 
         $this->calls[] = new RecordedCall('schedule', $request, $scheduled);

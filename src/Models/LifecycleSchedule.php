@@ -122,6 +122,11 @@ class LifecycleSchedule extends Model
             status: $this->status,
             attempts: $this->attempts,
             nextWarnAt: $this->next_warn_at,
+            subjectType: $this->subject_type,
+            subjectId: $this->subject_id,
+            lastDenial: $this->last_denial,
+            outcome: $this->outcome,
+            finishedAt: $this->finished_at,
         );
     }
 

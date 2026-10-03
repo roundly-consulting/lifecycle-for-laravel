@@ -7,10 +7,12 @@ namespace RoundlyConsulting\Lifecycle\DataTransferObjects;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
+use RoundlyConsulting\Lifecycle\Enums\ScheduleOutcome;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 
 /**
- * A pending (or finished) future system transition: a TTL expiry or a scheduled transition.
+ * A pending (or finished) future system transition: a TTL expiry or a scheduled transition,
+ * with the subject it belongs to and — once finished — how it ended.
  */
 final readonly class ScheduledTransition
 {
@@ -25,5 +27,10 @@ final readonly class ScheduledTransition
         public ScheduleStatus $status,
         public int $attempts,
         public ?CarbonImmutable $nextWarnAt,
+        public string $subjectType,
+        public int|string $subjectId,
+        public ?string $lastDenial = null,
+        public ?ScheduleOutcome $outcome = null,
+        public ?CarbonImmutable $finishedAt = null,
     ) {}
 }
