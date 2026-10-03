@@ -5,20 +5,25 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Definition\Issue;
 use RoundlyConsulting\Lifecycle\Definition\TransitionDefinition;
+use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
+use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\LifecycleException;
 use RoundlyConsulting\Lifecycle\Exceptions\QuotaScopeException;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
+use RoundlyConsulting\Lifecycle\Support\ActorResolver;
 use RoundlyConsulting\Lifecycle\Support\SweepSchedule;
+use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 
 /**
  * Validates definitions: every error and warning, with its message. For `Model:attribute`
  * the columns the definition names (stamps, expiry attributes, quota scopes) must exist on
- * the model's table. Without arguments it validates every lifecycle of every model in
+ * the model's table, and every rate-limit key must fit the cache's key limit. Without arguments it validates every lifecycle of every model in
  * `lifecycle.subjects`, and warns when a definition needs `lifecycle:sweep` but the host never
  * scheduled it. Exits 1 on errors — or warnings with `--strict`, where nothing to validate
  * counts as a failure too.
@@ -65,7 +70,9 @@ final class ValidateCommand extends Command
             try {
                 $class = $this->definitionClass($arguments, $registry, $target);
                 $report = $registry->validate($class);
-                $columns = str_contains($target, ':') && $report->isValid() ? $this->missingColumns($arguments, $target) : [];
+                $columns = str_contains($target, ':') && $report->isValid()
+                    ? [...$this->missingColumns($arguments, $target), ...$this->oversizedRateLimitKeys($arguments, $target)]
+                    : [];
                 if ($report->isValid() && self::needsSweep($registry->get($class))) {
                     $sweeps[$this->connectionOf($arguments, $target)] = true;
                 }
@@ -166,6 +173,57 @@ final class ValidateCommand extends Command
         $class = $arguments->model($model);
 
         return $registry->definitionsOf($class)[$registry->lifecycleName($class, $attribute === '' ? null : $attribute)];
+    }
+
+    /**
+     * Rate-limit keys that could outgrow the cache's key limit for this model: the longest key
+     * each rate-limited transition can build — the model's morph type, the actor types it
+     * accepts (else the default auth user model) and the longest keys of the configured key
+     * types — with the cache prefix and the limiter's suffix.
+     *
+     * @return list<string>
+     */
+    private function oversizedRateLimitKeys(ResolvesLifecycleArguments $arguments, string $target): array
+    {
+        [$model, $attribute] = explode(':', $target, 2);
+        $class = $arguments->model($model);
+        $definition = $arguments->definition($target);
+        $lifecycle = $attribute === '' ? (string) array_key_first((new $class)->lifecycleDefinitions()) : $attribute;
+        $subjectKey = str_repeat('0', self::keyLength(KeyType::fromConfig('lifecycle.key_type')));
+        $actorKey = str_repeat('0', self::keyLength(KeyType::fromConfig('lifecycle.actor_key_type')));
+        $oversized = [];
+
+        foreach ($definition->transitions as $transition) {
+            if ($transition->rateLimits === []) {
+                continue;
+            }
+
+            $actorTypes = array_map(static fn (string $type): string => (new $type)->getMorphClass(), array_filter(
+                $transition->actorTypes !== [] ? $transition->actorTypes : [ActorResolver::defaultActorType()],
+                static fn (?string $type): bool => $type !== null && is_subclass_of($type, Model::class),
+            ));
+            $longest = 0;
+
+            foreach ([null, ...$actorTypes] as $actorType) {
+                $key = GuardPipeline::rateLimitKeyOf((new $class)->getMorphClass(), $lifecycle, $transition->name, $actorType === null ? null : [$actorType, $actorKey], $subjectKey);
+                $longest = max($longest, GuardPipeline::storedRateLimitKeyLength($key));
+            }
+
+            if ($longest > GuardPipeline::RATE_LIMIT_KEY_LIMIT) {
+                $oversized[] = 'rate_limit_key_too_long: '.InvalidLifecycleUsageException::rateLimitKeyTooLong($transition->name, $longest, GuardPipeline::RATE_LIMIT_KEY_LIMIT)->getMessage();
+            }
+        }
+
+        return $oversized;
+    }
+
+    private static function keyLength(KeyType $type): int
+    {
+        return match ($type) {
+            KeyType::Uuid => 36,
+            KeyType::Ulid => 26,
+            KeyType::BigInt => 20,
+        };
     }
 
     /**

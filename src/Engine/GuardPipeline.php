@@ -8,7 +8,9 @@ use Carbon\CarbonImmutable;
 use Closure;
 use DateTimeInterface;
 use Illuminate\Cache\RateLimiter;
+use Illuminate\Container\Container as BaseContainer;
 use Illuminate\Contracts\Auth\Access\Gate;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Date;
 use RoundlyConsulting\Lifecycle\Contracts\Guard;
@@ -340,31 +342,76 @@ final readonly class GuardPipeline
     }
 
     /**
-     * JSON-encoded parts — no delimiter a value could forge — URL-encoded, so the rate limiter's
-     * own key cleaning (which collapses HTML entities: `&` → `a`, `é` → `e`) has nothing left to
-     * merge. Per-actor limits of an actor-less call count per subject instead of in one shared
-     * bucket for everyone without an actor.
+     * The strictest common cache key limit: memcached's 250 bytes (the `database` store's key
+     * column holds 255). A rate-limit key, with the cache store's prefix and the limiter's
+     * `:timer` suffix, must fit it.
+     */
+    public const int RATE_LIMIT_KEY_LIMIT = 250;
+
+    /**
+     * Readable, injective and bounded: every part is escaped (anything outside
+     * `[A-Za-z0-9_.\\-]` becomes `%XX`, so the rate limiter's own HTML-entity cleaning has nothing
+     * to merge and the `:` separators stay unambiguous), absent parts are `~`, and the layout is
+     * fixed — prefix, subject type, lifecycle, transition, actor type, actor key, subject key.
+     * No digest (the fleet keeps hashing in crypto-for-laravel, which this Tier-0 package does
+     * not require): a key that would not fit the cache throws instead of failing in the store.
+     * Per-actor limits of an actor-less call count per subject, never in one shared bucket.
      */
     private function rateLimitKey(Evaluation $evaluation, RateLimitRule $rule): string
     {
         $context = $evaluation->context;
         $actor = $context->actor;
-        $parts = [];
+        $withActor = $rule->per !== RateLimitScope::Subject && $actor !== null;
 
-        if ($rule->per !== RateLimitScope::Subject && $actor !== null) {
-            $parts[] = [$actor->getMorphClass(), $actor->getKey()];
-        }
+        $key = self::rateLimitKeyOf(
+            $context->subject->getMorphClass(),
+            $context->lifecycle,
+            $context->transition->name,
+            $withActor ? [$actor->getMorphClass(), (string) $actor->getKey()] : null,
+            $rule->per !== RateLimitScope::Actor || ! $withActor ? (string) $context->subject->getKey() : null,
+        );
 
-        if ($rule->per !== RateLimitScope::Actor || $actor === null) {
-            $parts[] = [$context->subject->getMorphClass(), $context->subject->getKey()];
-        }
+        $length = self::storedRateLimitKeyLength($key);
 
+        return $length <= self::RATE_LIMIT_KEY_LIMIT
+            ? $key
+            : throw InvalidLifecycleUsageException::rateLimitKeyTooLong($context->transition->name, $length, self::RATE_LIMIT_KEY_LIMIT);
+    }
+
+    /**
+     * @param  array{0: string, 1: string}|null  $actor  [morph type, key]
+     */
+    public static function rateLimitKeyOf(string $subjectType, string $lifecycle, string $transition, ?array $actor, ?string $subjectKey): string
+    {
         $prefix = config('lifecycle.rate_limits.prefix', 'lifecycle');
 
-        return rawurlencode(json_encode(
-            [is_string($prefix) ? $prefix : 'lifecycle', $evaluation->definition->class, $context->transition->name, $parts],
-            JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE,
-        ));
+        return implode(':', array_map(self::keyPart(...), [
+            is_string($prefix) ? $prefix : 'lifecycle',
+            $subjectType,
+            $lifecycle,
+            $transition,
+            $actor[0] ?? null,
+            $actor[1] ?? null,
+            $subjectKey,
+        ]));
+    }
+
+    /**
+     * The length the cache store holds: its prefix, the key and the limiter's `:timer` suffix.
+     */
+    public static function storedRateLimitKeyLength(string $key): int
+    {
+        $limiter = config('cache.limiter');
+        $store = BaseContainer::getInstance()->make(CacheFactory::class)->store(is_string($limiter) ? $limiter : null);
+
+        return strlen($store->getStore()->getPrefix()) + strlen($key) + strlen(':timer');
+    }
+
+    private static function keyPart(?string $value): string
+    {
+        return $value === null
+            ? '~'
+            : (string) preg_replace_callback('/[^A-Za-z0-9_.\\\\-]/', static fn (array $match): string => '%'.strtoupper(bin2hex($match[0])), $value);
     }
 
     /**

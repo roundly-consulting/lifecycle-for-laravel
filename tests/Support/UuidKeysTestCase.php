@@ -29,5 +29,11 @@ abstract class UuidKeysTestCase extends TestCase
             $table->string('status', 64)->nullable();
             $table->timestamps();
         });
+
+        Schema::create('uuid_documents', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('status', 64)->nullable();
+            $table->timestamps();
+        });
     }
 }

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Enums\RateLimitScope;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\Invalid\BrokenLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\Invalid\WarningsOnlyLifecycle;
@@ -176,6 +177,24 @@ it('warns when the sweep of a subject connection is not scheduled', function ():
     [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
 
     expect($code)->toBe(0)->and($output)->not->toContain($warning);
+});
+
+it('reports a rate-limit key a listed subject could not fit into the cache', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn ($go) => $go->rateLimit(5, '1 hour', RateLimitScope::ActorAndSubject)));
+    config()->set('lifecycle.subjects', [Document::class]);
+    app(Schedule::class)->command('lifecycle:sweep')->everyMinute();
+
+    expect(artisan('lifecycle:validate', ['--strict' => true])[0])->toBe(0);
+
+    Relation::morphMap([str_repeat('d', 240) => Document::class]);
+
+    try {
+        [$code, $output] = artisan('lifecycle:validate');
+
+        expect($code)->toBe(1)->and($output)->toContain('rate_limit_key_too_long')->and($output)->toContain('[go]');
+    } finally {
+        Relation::morphMap([], false);
+    }
 });
 
 it('warns about the sweep for a definition with a system transition only', function (): void {

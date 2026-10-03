@@ -70,6 +70,16 @@ final class InvalidLifecycleUsageException extends LifecycleException
         ));
     }
 
+    public static function rateLimitKeyTooLong(string $transition, int $length, int $limit): self
+    {
+        return new self(sprintf(
+            'The rate-limit key of [%s] would be %d characters in the cache (at most %d): give the subject and actor models short morph map aliases (Relation::enforceMorphMap()) or shorten lifecycle.rate_limits.prefix.',
+            $transition,
+            $length,
+            $limit,
+        ));
+    }
+
     public static function invalidDateAttribute(string $attribute, mixed $value): self
     {
         return new self(sprintf(

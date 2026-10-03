@@ -21,6 +21,20 @@ final readonly class ActorResolver
         private Container $container,
     ) {}
 
+    /**
+     * The model class of the default auth provider's users, when it is one — what an actor
+     * most likely is when a transition names no actor types (`lifecycle:validate` sizes keys
+     * with it).
+     *
+     * @return class-string<Model>|null
+     */
+    public static function defaultActorType(): ?string
+    {
+        $model = config('auth.providers.users.model');
+
+        return is_string($model) && is_subclass_of($model, Model::class) ? $model : null;
+    }
+
     public function resolve(?Model $explicit, bool $system): ?Model
     {
         if ($system) {
