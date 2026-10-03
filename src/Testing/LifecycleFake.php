@@ -39,6 +39,7 @@ use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
+use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\RollbackDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
@@ -52,11 +53,14 @@ use RoundlyConsulting\Lifecycle\Support\Durations;
  * Installed by `Lifecycles::fake()`. A manager subtype, so injected managers are faked too.
  *
  * It evaluates the real compiled definition's structural checks (unknown transition, wrong
- * source, terminal state, system-only, a payload without `rules()`) against the in-memory attribute and, when they pass,
- * changes that attribute in memory — no database writes, no events, no jobs. DB-backed
- * checks (guards, limits, quotas) are skipped; steer outcomes with `denyNext()` / `deny()`.
- * The model hooks that only touch the in-memory model (initial state, strict writes) keep
- * their real behaviour; the DB-touching ones do nothing.
+ * source, terminal state, system context, a payload without `rules()`) against the in-memory
+ * attribute and, when they pass, changes that attribute in memory — no database writes, no
+ * events, no jobs. It keeps its own state for what it was asked to do: a fake freeze refuses
+ * transitions (`frozen`) like a real one, a fake schedule can be cancelled once and is
+ * forgotten when a faked transition leaves its state, and expiry changes compute the real
+ * instant from the state's TTL. DB-backed checks (guards, limits, quotas) are skipped; steer
+ * outcomes with `denyNext()` / `deny()`. The model hooks that only touch the in-memory model
+ * (initial state, strict writes) keep their real behaviour; the DB-touching ones do nothing.
  */
 final class LifecycleFake extends LifecycleManager
 {
@@ -73,6 +77,12 @@ final class LifecycleFake extends LifecycleManager
 
     /** @var array<string, list<TransitionResult>> applied transitions per subject lifecycle, for the fake's rollbacks */
     private array $stacks = [];
+
+    /** @var array<string, FreezeRequest> the fake's own freezes per subject lifecycle */
+    private array $frozen = [];
+
+    /** @var array<string, array<string, string>> the fake's open schedules per subject lifecycle: transition => state it was scheduled in */
+    private array $scheduled = [];
 
     public function __construct(Container $container)
     {
@@ -117,6 +127,11 @@ final class LifecycleFake extends LifecycleManager
         $attributes[$request->lifecycle] = $definition->encode($transition->to);
         $subject->setRawAttributes($attributes);
         $subject->syncOriginalAttribute($request->lifecycle);
+
+        if ($from !== $transition->to) {
+            // Leaving a state cancels what was scheduled in it (real: `state_left`).
+            unset($this->scheduled[self::stackKey($subject, $request->lifecycle)]);
+        }
 
         $this->sequence++;
 
@@ -204,18 +219,41 @@ final class LifecycleFake extends LifecycleManager
         return $available;
     }
 
+    /**
+     * Freezes in the fake's memory; false when it was already frozen until the same instant
+     * for the same reason (nothing changed), like the real one.
+     */
     public function freeze(FreezeRequest $request): bool
     {
-        $this->calls[] = new RecordedCall('freeze', $request, true);
+        $this->guardPersisted($request->subject);
+        $key = self::stackKey($request->subject, $request->lifecycle);
+        $current = $this->activeFreeze($key);
+        $until = $request->until === null ? null : Clock::utc($request->until);
+        $sameEnd = $current?->until === null ? $until === null : $until !== null && Clock::utc($current->until)->equalTo($until);
+        $changed = ! ($current !== null && $sameEnd && $current->reason === $request->reason);
 
-        return true;
+        if ($changed) {
+            $this->frozen[$key] = $request;
+        }
+
+        $this->calls[] = new RecordedCall('freeze', $request, $changed);
+
+        return $changed;
     }
 
+    /**
+     * Lifts the fake's freeze; false when it was not frozen (or the freeze had lapsed).
+     */
     public function unfreeze(UnfreezeRequest $request): bool
     {
-        $this->calls[] = new RecordedCall('unfreeze', $request, true);
+        $this->guardPersisted($request->subject);
+        $key = self::stackKey($request->subject, $request->lifecycle);
+        $frozen = $this->activeFreeze($key) !== null;
+        unset($this->frozen[$key]);
 
-        return true;
+        $this->calls[] = new RecordedCall('unfreeze', $request, $frozen);
+
+        return $frozen;
     }
 
     /**
@@ -276,6 +314,12 @@ final class LifecycleFake extends LifecycleManager
             }
         }
 
+        $reverted = $this->definitions()->of($request->subject, $request->lifecycle)->transition(end($stack)->transition);
+
+        if (! ($reverted->ignoresFreeze ?? false) && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
+            return Decision::deny(Denial::of(DenialCode::Frozen, $params, source: 'record'));
+        }
+
         return Decision::allow();
     }
 
@@ -286,17 +330,32 @@ final class LifecycleFake extends LifecycleManager
         return new PruneResult;
     }
 
+    /**
+     * The real schedule-time structural checks (unknown transition, terminal state, wrong
+     * source, a payload without `rules()`, the fake's freeze, system context), then the fake's
+     * own denials; a refusal is recorded and thrown like the real one.
+     */
     public function schedule(ScheduleRequest $request): ScheduledTransition
     {
-        $this->sequence++;
+        $this->guardPersisted($request->subject);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
         $current = $this->current($request->subject, $request->lifecycle, $definition);
+        $transition = $this->scheduleDecision($request, $definition, $current);
+
+        if ($transition instanceof Decision) {
+            $this->calls[] = new RecordedCall('schedule', $request, denied: $transition);
+
+            throw TransitionDeniedException::because($transition);
+        }
+
+        $this->sequence++;
+        $this->scheduled[self::stackKey($request->subject, $request->lifecycle)][$transition->name] = $current;
 
         $scheduled = new ScheduledTransition(
             id: $this->sequence,
             lifecycle: $request->lifecycle,
             kind: ScheduleKind::Transition,
-            transition: $request->transition,
+            transition: $transition->name,
             forState: $definition->value($current),
             dueAt: Clock::utc($request->at),
             expiresAt: null,
@@ -310,19 +369,42 @@ final class LifecycleFake extends LifecycleManager
         return $scheduled;
     }
 
+    /**
+     * True when the fake scheduled this transition and it is still open; it is then forgotten.
+     */
     public function cancelScheduled(CancelScheduleRequest $request): bool
     {
-        $this->calls[] = new RecordedCall('cancelScheduled', $request, true);
+        $this->guardPersisted($request->subject);
+        $key = self::stackKey($request->subject, $request->lifecycle);
+        $cancelled = isset($this->scheduled[$key][$request->transition]);
+        unset($this->scheduled[$key][$request->transition]);
 
-        return true;
+        $this->calls[] = new RecordedCall('cancelScheduled', $request, $cancelled);
+
+        return $cancelled;
     }
 
+    /**
+     * Computes the instant the real call would set, without writing: `Set` the instant, `Renew`
+     * now + the interval (else the state's TTL), `Extend` the pending expiry — read from the
+     * database, so a subject created under the fake (no expiry rows) extends from now — and
+     * `Clear` null. A state without an expiry throws, like the real one.
+     */
     public function changeExpiry(ExpiryChangeRequest $request): ?CarbonImmutable
     {
+        $this->guardPersisted($request->subject);
+        $definition = $this->definitions()->of($request->subject, $request->lifecycle);
+        $state = $this->current($request->subject, $request->lifecycle, $definition);
+        $ttl = $definition->state($state)->ttl ?? throw ExpiryException::stateCannotExpire($state);
+
         $result = match ($request->change) {
-            ExpiryChange::Set => $request->at === null ? null : Clock::utc($request->at),
+            ExpiryChange::Set => Clock::utc($request->at ?? throw InvalidLifecycleUsageException::invalidRequest('expireAt() needs an instant')),
+            ExpiryChange::Extend => Durations::add(
+                $this->for($request->subject, $request->lifecycle)->expiresAt() ?? Clock::now(),
+                $request->interval ?? throw InvalidLifecycleUsageException::invalidRequest('extend() needs an interval'),
+            ),
+            ExpiryChange::Renew => Durations::add(Clock::now(), $request->interval ?? $ttl->interval ?? throw ExpiryException::noTtl($state)),
             ExpiryChange::Clear => null,
-            default => $request->interval === null ? null : Durations::add(Clock::now(), $request->interval),
         };
 
         $this->calls[] = new RecordedCall('changeExpiry', $request, $result);
@@ -346,7 +428,7 @@ final class LifecycleFake extends LifecycleManager
 
     public function retrySchedule(int $scheduleId): bool
     {
-        $this->calls[] = new RecordedCall('retrySchedule', new SweepOptions($scheduleId), false);
+        $this->calls[] = new RecordedCall('retrySchedule', new RetriedSchedule($scheduleId), false);
 
         return false;
     }
@@ -569,6 +651,133 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertNotEmpty($matching, 'Expected a lifecycle adoption, but none was recorded.');
     }
 
+    public function assertNothingUnfrozen(): void
+    {
+        $count = $this->count('unfreeze');
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be unfrozen, but %d unfreeze(s) were recorded.', $count));
+    }
+
+    public function assertScheduleCancelled(Model $subject, ?string $transition = null): void
+    {
+        $matching = array_filter(
+            $this->requests('cancelScheduled', $subject, null),
+            static fn (object $request): bool => $request instanceof CancelScheduleRequest && ($transition === null || $request->transition === $transition),
+        );
+
+        PHPUnit::assertNotEmpty($matching, sprintf(
+            'Expected a schedule of [%s]%s to be cancelled, but none was.',
+            $subject::class,
+            $transition === null ? '' : " for [{$transition}]",
+        ));
+    }
+
+    public function assertNothingCancelled(): void
+    {
+        $count = $this->count('cancelScheduled');
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no schedule to be cancelled, but %d cancellation(s) were recorded.', $count));
+    }
+
+    public function assertWarned(?int $times = null): void
+    {
+        $count = $this->count('sendExpiryWarnings');
+
+        $times === null
+            ? PHPUnit::assertGreaterThan(0, $count, 'Expected expiry warnings to be sent, but none were.')
+            : PHPUnit::assertSame($times, $count, sprintf('Expected %d expiry warning run(s), but %d ran.', $times, $count));
+    }
+
+    public function assertNotWarned(): void
+    {
+        $count = $this->count('sendExpiryWarnings');
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no expiry warnings, but %d warning run(s) were recorded.', $count));
+    }
+
+    public function assertScheduleRetried(?int $scheduleId = null): void
+    {
+        $matching = array_filter(
+            $this->calls,
+            static fn (RecordedCall $call): bool => $call->request instanceof RetriedSchedule
+                && ($scheduleId === null || $call->request->scheduleId === $scheduleId),
+        );
+
+        PHPUnit::assertNotEmpty($matching, sprintf(
+            'Expected %s to be retried, but %s.',
+            $scheduleId === null ? 'a schedule' : "schedule [{$scheduleId}]",
+            $scheduleId === null ? 'none was' : 'it was not',
+        ));
+    }
+
+    public function assertNothingRetried(): void
+    {
+        $count = $this->count('retrySchedule');
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no schedule to be retried, but %d retry(s) were recorded.', $count));
+    }
+
+    public function assertNothingAdopted(): void
+    {
+        $count = $this->count('adopt') + $this->count('adoptAll');
+
+        PHPUnit::assertSame(0, $count, sprintf('Expected no lifecycle adoption, but %d were recorded.', $count));
+    }
+
+    private function count(string $method): int
+    {
+        return count(array_filter($this->calls, static fn (RecordedCall $call): bool => $call->method === $method));
+    }
+
+    /**
+     * The fake's freeze of a subject lifecycle, while it lasts.
+     */
+    private function activeFreeze(string $key): ?FreezeRequest
+    {
+        $freeze = $this->frozen[$key] ?? null;
+
+        return $freeze !== null && ($freeze->until === null || Clock::utc($freeze->until)->greaterThan(Clock::now())) ? $freeze : null;
+    }
+
+    /**
+     * The schedule-time subset of the real checks (GuardPipeline::evaluateSchedule()) the fake
+     * can evaluate without a database, then its own denials.
+     */
+    private function scheduleDecision(ScheduleRequest $request, CompiledDefinition $definition, string $current): Decision|TransitionDefinition
+    {
+        $transition = $this->container->make(GuardPipeline::class)->resolve($definition, $request->transition, null, $current);
+
+        if ($transition instanceof Denial) {
+            return Decision::deny($transition);
+        }
+
+        if ($request->payload !== [] && $transition->rules === []) {
+            throw InvalidLifecycleUsageException::undeclaredPayload($transition->name, array_keys($request->payload));
+        }
+
+        $params = ['transition' => $transition->label(), 'state' => $definition->stateLabel($current)];
+        $denials = [];
+
+        if (! $transition->ignoresFreeze && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
+            $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
+        }
+
+        if (! $transition->allowsSystem()) {
+            $denials[] = Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context');
+        } elseif ($transition->systemOnly && ! $request->system) {
+            $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
+        }
+
+        if ($denials !== []) {
+            return Decision::from($denials);
+        }
+
+        $denial = $this->once[$transition->name] ?? $this->sticky[$transition->name] ?? null;
+        unset($this->once[$transition->name]);
+
+        return $denial === null ? $transition : Decision::deny($denial);
+    }
+
     /**
      * Recorded requests of one method for a subject (and lifecycle).
      *
@@ -629,13 +838,20 @@ final class LifecycleFake extends LifecycleManager
         }
 
         $params = ['transition' => $transition->label(), 'state' => $definition->stateLabel($current)];
+        $denials = [];
 
-        if (! $request->system && $transition->systemOnly) {
-            return Decision::deny(Denial::of(DenialCode::SystemOnly, $params, source: 'context'));
+        if (! $transition->ignoresFreeze && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
+            $denials[] = Denial::of(DenialCode::Frozen, $params, source: 'record');
         }
 
-        if ($request->system && ! $transition->allowsSystem()) {
-            return Decision::deny(Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context'));
+        if (! $request->system && $transition->systemOnly) {
+            $denials[] = Denial::of(DenialCode::SystemOnly, $params, source: 'context');
+        } elseif ($request->system && ! $transition->allowsSystem()) {
+            $denials[] = Denial::of(DenialCode::SystemNotAllowed, $params, source: 'context');
+        }
+
+        if ($denials !== []) {
+            return Decision::from($denials);
         }
 
         $denial = $this->once[$transition->name] ?? $this->sticky[$transition->name] ?? null;

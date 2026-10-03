@@ -46,8 +46,9 @@ Initial public release.
   and the `AsLifecycleState` cast.
 - Mermaid and DOT graphs (`lifecycle:graph`) and `lifecycle:show`.
 - The `Lifecycles` facade over an injectable `LifecycleManager` and public action classes, with
-  `Lifecycles::fake()` and assertions for transitions, denials, rollbacks, freezes, schedules,
-  expiry changes, sweeps, adoption and pruning.
+  `Lifecycles::fake()` — it mirrors the real structural checks, freezes, schedules and expiry
+  instants in memory — and assertions for transitions, denials, rollbacks, freezes and unfreezes,
+  schedules and cancellations, expiry changes, sweeps, warnings, retries, adoption and pruning.
 - Events: `LifecycleTransitioning`, `LifecycleTransitioned`, `LifecycleTransitionDenied`,
   `LifecycleExpiring`, `LifecycleExpired`, `LifecycleRolledBack`, `LifecycleFrozen`,
   `LifecycleUnfrozen`, `LifecycleAdopted` and `ScheduledTransitionFailed`.

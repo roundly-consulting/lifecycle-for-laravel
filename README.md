@@ -990,20 +990,37 @@ Lifecycles::assertNotTransitioned($listing, 'reopen');
 ```
 
 `Lifecycles::fake()` replaces the manager behind the facade **and** in the container, so injected
-managers, handles and `$model->transition()` are faked too. It runs the real definition's
-structural checks (unknown transition, wrong source state, terminal state, system context) and
-changes the model's attribute in memory. Guards, quotas and other database-backed checks are
-skipped. It writes nothing and fires nothing. A model created under the fake still starts in its
-initial state, and a direct write still throws. Handle reads backed by the database (`enteredAt()`,
-`isFrozen()`, `expiresAt()`, `history()`) see no faked changes, so use the assertions:
+managers, handles and `$model->transition()` are faked too. It writes nothing and fires nothing,
+but it refuses what the real engine refuses structurally and keeps its own memory of what it was
+asked to do:
+
+- **Transitions** run the real definition's structural checks (unknown transition, wrong source
+  state, terminal state, system context, a payload without `rules()`) and change the model's
+  attribute in memory.
+- **Freezes**: a faked `freeze()` refuses later transitions (`frozen`) unless they
+  `ignoresFreeze()`, until `unfreeze()` or its `until`. Both return what the real calls return.
+- **Schedules**: `schedule()` runs the real schedule-time checks (unknown, terminal or wrong-source
+  transition, system context, freeze). `cancelScheduled()` returns `true` once for a schedule the
+  fake made, and a faked transition that leaves the state forgets its schedules.
+- **Expiry**: `renew()`, `extend()` and `expireAt()` return the instant the real call would set
+  (now + the state's TTL for `renew()`); a state without an expiry throws `ExpiryException`. The
+  fake writes no expiry rows, so `extend()` on a model created under the fake extends from now.
+
+Guards, quotas, rate limits and other database-backed checks are skipped. A model created under the
+fake still starts in its initial state, and a direct write still throws. Handle reads backed by the
+database (`enteredAt()`, `isFrozen()`, `expiresAt()`, `history()`, `scheduled()`) see no faked
+changes, so use the assertions:
 
 `assertTransitioned($subject, ?$transition, ?$callback)`, `assertTransitionedTo($subject, $state)`,
 `assertNotTransitioned()`, `assertNothingTransitioned()`, `assertTransitionDenied($subject, ?$transition, ?$code)`,
 `assertRolledBack()`, `assertNothingRolledBack()`, `assertFrozen()`, `assertUnfrozen()`,
-`assertNothingFrozen()`, `assertScheduled($subject, $transition, ?$at)`, `assertNothingScheduled()`,
+`assertNothingFrozen()`, `assertNothingUnfrozen()`, `assertScheduled($subject, $transition, ?$at)`,
+`assertNothingScheduled()`, `assertScheduleCancelled($subject, ?$transition)`, `assertNothingCancelled()`,
 `assertExpiryChanged($subject, ?ExpiryChange)`, `assertNoExpiryChanged()`, `assertAdopted()`,
-`assertSwept(?$times)`, `assertNotSwept()`, `assertPruned()`, `assertNotPruned()` and `recorded()`.
-`deny($transition, $code)` refuses every time; `denyNext()` once.
+`assertNothingAdopted()`, `assertSwept(?$times)`, `assertNotSwept()`, `assertWarned(?$times)`,
+`assertNotWarned()`, `assertScheduleRetried(?$scheduleId)`, `assertNothingRetried()`, `assertPruned()`,
+`assertNotPruned()` and `recorded()`. `deny($transition, $code)` refuses every time; `denyNext()`
+once.
 
 For integration tests against the real engine, use your factories (a declared non-initial state is
 accepted on creation) and `Carbon::setTestNow()` with `Lifecycles::sweep()` to travel through
