@@ -182,7 +182,7 @@ final readonly class GuardPipeline
      *
      * @return list<Denial>
      */
-    public function rollbackActor(Evaluation $evaluation): array
+    public function rollbackActor(Evaluation $evaluation, bool $gate = true): array
     {
         $context = $evaluation->context;
         $rule = $context->transition->reversibility;
@@ -194,7 +194,7 @@ final readonly class GuardPipeline
         if (! $rule->hasActorRules()) {
             return $context->transition->systemOnly
                 ? [Denial::of(DenialCode::SystemOnly, $this->params($evaluation), source: 'context')]
-                : $this->actor($evaluation);
+                : $this->actor($evaluation, $gate);
         }
 
         $params = $this->params($evaluation);
@@ -205,12 +205,13 @@ final readonly class GuardPipeline
                 return [Denial::of(DenialCode::ActorRequired, $params, source: 'actor')];
             }
 
-            if (! $this->container->make(Gate::class)->forUser($context->actor)->allows($rule->ability, [$context->subject, $context])) {
+            if ($gate && ! $this->container->make(Gate::class)->forUser($context->actor)->allows($rule->ability, [$context->subject, $context])) {
                 $denials[] = Denial::of(DenialCode::Unauthorized, $params, source: 'actor');
             }
         }
 
-        foreach ($rule->guards as $guard) {
+        // Rollback guards are guards: `$gate = false` (the fake) skips them with the Gate.
+        foreach ($gate ? $rule->guards : [] as $guard) {
             $denial = $this->resolveGuard($guard)->check($context);
 
             if ($denial !== null) {

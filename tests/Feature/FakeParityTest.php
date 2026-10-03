@@ -23,7 +23,7 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\User;
 function parityLifecycle(): void
 {
     defineDocumentLifecycle(function (LifecycleBuilder $l): void {
-        $l->states(['a', 'b', 'c', 'z'])->initial('a')->terminal('z');
+        $l->states(['a', 'b', 'c', 'd', 'z'])->initial('a')->terminal('z');
         $l->state('b')->ttl('1 day')->expiresVia('bc');
         $l->transition('ab')->from('a')->to('b');
         $l->transition('also_ab')->from('a')->to('b');
@@ -37,6 +37,10 @@ function parityLifecycle(): void
         $l->transition('with_rules')->from('a')->to('c')->allowSystem()
             ->rules(['card' => 'required', 'amount' => 'required|integer'])->sensitive('card');
         $l->transition('secret')->from('a')->to('c')->allowSystem()->rules(['token' => 'required'])->sensitive('token');
+        $l->transition('lock')->from('a')->to('c')->irreversible();
+        $l->transition('handled')->from('a')->to('c')->handledBy(static function (): void {});
+        $l->transition('timed')->from('a')->to('c')->reversible(within: '1 hour');
+        $l->transition('out')->from('c')->to('d')->ignoresFreeze();
     });
 }
 
@@ -63,6 +67,7 @@ function parityRun(Closure $scenario): array
         $returned instanceof CarbonInterface => $returned->toIso8601String(),
         $returned instanceof Decision => implode(',', $returned->codes()),
         $returned instanceof TransitionResult => $returned->transition.($returned->replayed ? ' (replayed)' : ''),
+        is_array($returned) => json_encode($returned, JSON_THROW_ON_ERROR),
         is_bool($returned), $returned === null => $returned,
         default => get_debug_type($returned),
     };
@@ -233,6 +238,77 @@ dataset('structural scenarios', [
 
         return Lifecycles::for(Document::query()->findOrFail($d->id))->apply('ab');
     }],
+    'roll back an irreversible transition' => [function (Document $d) {
+        Lifecycles::for($d)->apply('lock');
+
+        return Lifecycles::for($d)->rollback();
+    }],
+    'roll back a handler that cannot compensate' => [function (Document $d) {
+        Lifecycles::for($d)->apply('handled');
+
+        return Lifecycles::for($d)->rollback();
+    }],
+    'roll back after the window' => [function (Document $d) {
+        Lifecycles::for($d)->apply('timed');
+        Carbon::setTestNow(CarbonImmutable::now()->addHours(2));
+
+        return Lifecycles::for($d)->canRollback();
+    }],
+    'roll back within the window' => [function (Document $d) {
+        Lifecycles::for($d)->apply('timed');
+
+        return Lifecycles::for($d)->canRollback();
+    }],
+    'roll back a system-only transition from user context' => [function (Document $d) {
+        Lifecycles::for($d)->asSystem()->apply('system');
+
+        return Lifecycles::for($d)->rollback();
+    }],
+    'roll back a system-only transition as the system' => [function (Document $d) {
+        Lifecycles::for($d)->asSystem()->apply('system');
+
+        return Lifecycles::for($d)->asSystem()->canRollback();
+    }],
+    'roll back with a reason too long' => [function (Document $d) {
+        config()->set('lifecycle.history.reason_max_length', 3);
+        Lifecycles::for($d)->apply('ab');
+
+        return Lifecycles::for($d)->because('too long')->rollback();
+    }],
+    'roll back through a transition that respects the freeze' => [function (Document $d) {
+        $point = Lifecycles::for($d)->apply('ab');
+        Lifecycles::for($d)->apply('bc');
+        Lifecycles::for($d)->apply('out');
+        Lifecycles::for($d)->freeze();
+
+        return [Lifecycles::for($d)->canRollback()->allowed, Lifecycles::for($d)->canRollbackTo($point->record)->codes()];
+    }],
+    'roll back a soft-deleted subject' => [function (Document $d) {
+        Lifecycles::for($d)->apply('ab');
+        $d->delete();
+
+        return Lifecycles::for($d)->rollback();
+    }],
+    'check the rollback of a soft-deleted subject' => [function (Document $d) {
+        Lifecycles::for($d)->apply('ab');
+        $d->delete();
+
+        return Lifecycles::for($d)->canRollback();
+    }],
+    'reopen what the reverted transition cancelled' => [function (Document $d): bool {
+        Lifecycles::for($d)->asSystem()->schedule('system', CarbonImmutable::now()->addDay());
+        Lifecycles::for($d)->apply('ab');
+        Lifecycles::for($d)->rollback();
+
+        return Lifecycles::for($d)->cancelScheduled('system');
+    }],
+    'forget what was scheduled in the state a rollback leaves' => [function (Document $d): bool {
+        Lifecycles::for($d)->apply('ab');
+        Lifecycles::for($d)->asSystem()->schedule('bc', CarbonImmutable::now()->addDay());
+        Lifecycles::for($d)->rollback();
+
+        return Lifecycles::for($d)->cancelScheduled('bc');
+    }],
     'expire at an instant' => [function (Document $d): CarbonInterface {
         Lifecycles::for($d)->apply('ab');
 
@@ -294,3 +370,26 @@ it('returns the same record shape from the fake as from the real manager', funct
     expect($shape())->toBe($real)
         ->and($real)->toBe([$user->getMorphClass(), $user->id, $storePayload ? ['amount' => 5] : [], false]);
 })->with(['payload stored' => true, 'payload not stored' => false]);
+
+it('returns the same rollback result shape from the fake as from the real manager', function (): void {
+    parityLifecycle();
+    $user = User::factory()->create();
+    $shape = function () use ($user): array {
+        $document = Document::factory()->create();
+        Lifecycles::for($document)->apply('ab');
+        Lifecycles::for($document)->apply('bc');
+        $result = Lifecycles::for($document)->by($user)->because('undo')->rollback();
+
+        return [
+            array_map(fn ($record): array => [$record->transition, $record->reverted], $result->reverted),
+            array_map(fn ($record): array => [$record->kind->value, $record->transition, $record->from, $record->to, $record->actorId, $record->reason, $record->revertsId === $result->reverted[0]->id], $result->records),
+            [$result->from, $result->to],
+        ];
+    };
+
+    $real = $shape();
+    Lifecycles::fake();
+
+    expect($shape())->toBe($real)
+        ->and($real[1])->toBe([['rollback', 'bc', 'c', 'b', $user->id, 'undo', true]]);
+});

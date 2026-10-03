@@ -26,6 +26,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\ScheduleRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepResult;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionAttempt;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
@@ -96,6 +97,9 @@ final class LifecycleFake extends LifecycleManager
     /** @var array<string, array<string, TransitionResult>> applied transitions per subject lifecycle, by idempotency key */
     private array $keyed = [];
 
+    /** @var array<int, array<string, string>> per faked record id: the schedules leaving its state forgot (transition => state) */
+    private array $forgotten = [];
+
     /**
      * Deny the next application of `$transition` (one-shot).
      */
@@ -150,12 +154,15 @@ final class LifecycleFake extends LifecycleManager
         $subject->setRawAttributes($attributes);
         $subject->syncOriginalAttribute($request->lifecycle);
 
-        if ($from !== $transition->to) {
-            // Leaving a state cancels what was scheduled in it (real: `state_left`).
-            unset($this->scheduled[self::stackKey($subject, $request->lifecycle)]);
-        }
-
         $this->sequence++;
+
+        if ($from !== $transition->to) {
+            // Leaving a state cancels what was scheduled in it (real: `state_left`); a rollback
+            // of this transition re-opens them.
+            $key = self::stackKey($subject, $request->lifecycle);
+            $this->forgotten[$this->sequence] = $this->scheduled[$key] ?? [];
+            unset($this->scheduled[$key]);
+        }
 
         $result = new TransitionResult(
             subject: $subject,
@@ -323,11 +330,16 @@ final class LifecycleFake extends LifecycleManager
     }
 
     /**
-     * Pops the fake's own stack of applied transitions; refused like the real one when there
-     * is nothing to roll back or the point is not on it.
+     * Pops the fake's own stack of applied transitions; refused like the real one for every
+     * reason that needs no database and no Gate (nothing to roll back, a point not on the stack,
+     * irreversible or non-compensating transitions, the window, the freeze, system-only
+     * transitions in user context, the actor rules, the reason). It re-opens the schedules the
+     * reverted transitions forgot and forgets those of the states it leaves.
      */
     public function rollback(RollbackRequest $request): RollbackResult
     {
+        $this->guardPersisted($request->subject);
+        $this->guardTrashed($request->subject);
         $decision = $this->checkRollback($request);
 
         if ($decision->denied()) {
@@ -339,11 +351,47 @@ final class LifecycleFake extends LifecycleManager
         $key = self::stackKey($request->subject, $request->lifecycle);
         $definition = $this->definitions()->of($request->subject, $request->lifecycle);
         $from = $definition->decode($this->current($request->subject, $request->lifecycle, $definition));
+        $actor = $this->container()->make(ActorResolver::class)->resolve($request->actor, $request->system);
         $reverted = [];
+        $records = [];
 
         do {
             $last = array_pop($this->stacks[$key]);
-            $reverted[] = $last->record;
+            $row = $last->record;
+            $reverted[] = new TransitionRecord(
+                $row->id, $row->lifecycle, $row->kind, $row->transition, $row->from, $row->to, $row->actorType, $row->actorId,
+                $row->system, $row->reason, $row->context, $row->snapshot, $row->version, $row->revertsId, $row->scheduleId, $row->occurredAt,
+                reverted: true,
+            );
+            $this->sequence++;
+            $records[] = new TransitionRecord(
+                id: $this->sequence,
+                lifecycle: $request->lifecycle,
+                kind: TransitionKind::Rollback,
+                transition: $row->transition,
+                from: $row->to,
+                to: $row->from ?? $row->to,
+                actorType: $actor?->getMorphClass(),
+                actorId: $actor?->getKey(),
+                system: $request->system,
+                reason: $request->reason,
+                context: [],
+                snapshot: null,
+                version: $this->sequence,
+                revertsId: $row->id,
+                scheduleId: null,
+                occurredAt: Clock::now(),
+                reverted: false,
+            );
+
+            if ($last->from !== null && $definition->key($last->from) !== $definition->key($last->to)) {
+                // Leaving the reverted row's state forgets its schedules; what it forgot comes back.
+                unset($this->scheduled[$key]);
+
+                foreach ($this->forgotten[$row->id] ?? [] as $transition => $state) {
+                    $this->scheduled[$key][$transition] ??= $state;
+                }
+            }
         } while ($request->toHistoryId !== null && $this->stacks[$key] !== [] && end($this->stacks[$key])->record->id !== $request->toHistoryId);
 
         $to = $last->from ?? $from;
@@ -352,7 +400,7 @@ final class LifecycleFake extends LifecycleManager
         $request->subject->setRawAttributes($attributes);
         $request->subject->syncOriginalAttribute($request->lifecycle);
 
-        $result = new RollbackResult($request->subject, $request->lifecycle, $from, $to, $reverted, []);
+        $result = new RollbackResult($request->subject, $request->lifecycle, $from, $to, $reverted, $records);
         $this->calls[] = new RecordedCall('rollback', $request, $result);
 
         return $result;
@@ -361,32 +409,108 @@ final class LifecycleFake extends LifecycleManager
     public function checkRollback(RollbackRequest $request): Decision
     {
         $this->guardPersisted($request->subject);
-        $stack = $this->stacks[self::stackKey($request->subject, $request->lifecycle)] ?? [];
+        $key = self::stackKey($request->subject, $request->lifecycle);
+        $stack = $this->stacks[$key] ?? [];
         $params = ['transition' => '', 'state' => ''];
+        $definition = $this->definitions()->of($request->subject, $request->lifecycle);
+
+        if (SoftDeletion::isTrashed($request->subject)) {
+            return Decision::deny(GuardPipeline::trashed($definition, $this->current($request->subject, $request->lifecycle, $definition), null));
+        }
 
         if ($stack === []) {
             return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
         }
 
+        $targets = [array_pop($stack)];
+
         if ($request->toHistoryId !== null) {
             $ids = array_map(static fn (TransitionResult $result): int => $result->record->id, $stack);
+
+            if ($targets[0]->record->id === $request->toHistoryId) {
+                return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
+            }
 
             if (! in_array($request->toHistoryId, $ids, true)) {
                 return Decision::deny(Denial::of(DenialCode::NotOnPath, $params, source: 'fake'));
             }
 
-            if (end($stack)->record->id === $request->toHistoryId) {
-                return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
+            foreach (array_reverse($stack) as $result) {
+                if ($result->record->id === $request->toHistoryId) {
+                    break;
+                }
+
+                $targets[] = $result;
             }
         }
 
-        $reverted = $this->definitions()->of($request->subject, $request->lifecycle)->transition(end($stack)->transition);
+        return Decision::from($this->rollbackDenials($request, $definition, $targets));
+    }
 
-        if (! ($reverted->ignoresFreeze ?? false) && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
-            return Decision::deny(Denial::of(DenialCode::Frozen, $params, source: 'record'));
+    /**
+     * The real rollback rules the fake can decide without a database or the Gate.
+     *
+     * @param  non-empty-list<TransitionResult>  $targets  newest first
+     * @return list<Denial>
+     */
+    private function rollbackDenials(RollbackRequest $request, CompiledDefinition $definition, array $targets): array
+    {
+        $current = $this->current($request->subject, $request->lifecycle, $definition);
+        $params = ['state' => $definition->stateLabel($current), 'transition' => ''];
+        $actor = $this->container()->make(ActorResolver::class)->resolve($request->actor, $request->system);
+        $pipeline = $this->container()->make(GuardPipeline::class);
+        $window = Durations::nullableFromConfig('lifecycle.rollback.default_window');
+        $ignoresFreeze = true;
+        $denials = [];
+
+        foreach ($targets as $target) {
+            $transition = $definition->transition($target->transition);
+            $rowParams = [...$params, 'transition' => $transition?->label() ?? $target->transition];
+            $ignoresFreeze = $ignoresFreeze && ($transition->ignoresFreeze ?? false);
+
+            if ($transition === null || ! $transition->reversibility->isReversible()) {
+                $denials[] = Denial::of($transition?->reversibility->irreversible === true ? DenialCode::Irreversible : DenialCode::NotReversible, $rowParams, source: 'rollback');
+
+                continue;
+            }
+
+            $within = $transition->reversibility->window ?? $window;
+
+            if ($within !== null && Clock::now()->greaterThanOrEqualTo(Durations::add($target->record->occurredAt, $within))) {
+                $denials[] = Denial::of(DenialCode::RollbackWindowPassed, $rowParams, source: 'rollback');
+            }
+
+            array_push($denials, ...$pipeline->rollbackActor(new Evaluation(
+                definition: $definition,
+                context: new TransitionContext(
+                    subject: $request->subject,
+                    lifecycle: $request->lifecycle,
+                    transition: $transition,
+                    from: $target->to,
+                    to: $target->from ?? $target->to,
+                    actor: $actor,
+                    system: $request->system,
+                    reason: $request->reason,
+                    payload: [],
+                    now: Clock::now(),
+                    version: 0,
+                ),
+                mode: Mode::Check,
+                record: null,
+            ), gate: false));
         }
 
-        return Decision::allow();
+        if (! $ignoresFreeze && $this->activeFreeze(self::stackKey($request->subject, $request->lifecycle)) !== null) {
+            array_unshift($denials, Denial::of(DenialCode::Frozen, $params, source: 'record'));
+        }
+
+        $tooLong = GuardPipeline::reasonTooLong($request->reason, $params);
+
+        if ($tooLong !== null) {
+            $denials[] = $tooLong;
+        }
+
+        return $denials;
     }
 
     public function prune(PruneOptions $options): PruneResult

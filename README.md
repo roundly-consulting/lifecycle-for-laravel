@@ -1086,6 +1086,9 @@ was asked to do:
   wrong source state, terminal state, system context, actor types and closures, the reason, payload
   validation), refuse a dirty lifecycle attribute and a soft-deleted subject, replay idempotency
   keys, and change the model's attribute in memory.
+- **Rollbacks** pop the fake's own stack and refuse like the real rules that need no database
+  (irreversible or non-compensating steps, windows, freezes, system-only steps, reasons), and give
+  the fake's schedules back as the real rollback does.
 - **Freezes**: a faked `freeze()` refuses later transitions (`frozen`) unless they
   `ignoresFreeze()`, until `unfreeze()` or its `until`. Both return what the real calls return.
 - **Schedules**: `schedule()` runs the real schedule-time checks except the Gate (unknown, terminal
