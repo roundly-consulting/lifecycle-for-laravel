@@ -112,6 +112,10 @@ final readonly class TransitionExecutor
                     throw TransitionDeniedException::because(Decision::deny($transition));
                 }
 
+                // Refused before the pipeline takes the quota lock and counts (perform() checks
+                // again after the handlers, and for scheduled runs).
+                $this->guardQuotaScope($request->subject, $definition->state($transition->to), $current === $transition->to);
+
                 $evaluation = $this->contexts->evaluation($definition, $request, $transition, $current, Mode::Apply, $record, $actor);
                 $decision = $this->pipeline->evaluate($evaluation);
 

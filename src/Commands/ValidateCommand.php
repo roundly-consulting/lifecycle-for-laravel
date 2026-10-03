@@ -101,8 +101,14 @@ final class ValidateCommand extends Command
 
         foreach (array_keys($sweeps) as $connection) {
             $connection = (string) $connection;
+            $scheduled = SweepSchedule::isScheduled($connection === '' ? null : $connection);
 
-            if (SweepSchedule::isScheduled($connection === '' ? null : $connection) !== false) {
+            if ($scheduled === null && $this->laravel->runningInConsole()) {
+                // An unnamed scheduled closure may be the sweep: say so instead of staying silent.
+                $this->line("  <comment>note</comment>    cannot tell whether a scheduled closure sweeps — name it ->name('lifecycle:sweep') to be checked.");
+            }
+
+            if ($scheduled !== false) {
                 continue;
             }
 

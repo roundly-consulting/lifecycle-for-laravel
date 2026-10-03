@@ -33,6 +33,8 @@ return new class extends Migration
             $table->unsignedSmallInteger('attempts')->default(0);
             $table->string('last_denial', 64)->nullable();
             $table->string('outcome', 32)->nullable();
+            // An expiry set by expireAt()/extend()/renew(); on a cancelled expiry row, the mark
+            // neverExpire() leaves for the rest of the stay (kept by lifecycle:prune while it lasts).
             $table->boolean('is_override')->default(false);
             $table->morphKey('scheduled_by', $actor, true);
             $table->jsonb('context')->nullable();

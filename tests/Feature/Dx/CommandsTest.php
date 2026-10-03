@@ -159,7 +159,9 @@ it('does not fail the strict validation over a sweep scheduled as an unnamed clo
 
     [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
 
-    expect($code)->toBe(0)->and($output)->not->toContain('is not scheduled');
+    expect($code)->toBe(0)
+        ->and($output)->not->toContain('is not scheduled')
+        ->and($output)->toContain("cannot tell whether a scheduled closure sweeps — name it ->name('lifecycle:sweep')");
 });
 
 it('warns when the sweep of a subject connection is not scheduled', function (): void {

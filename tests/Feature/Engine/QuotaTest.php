@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
@@ -150,4 +152,19 @@ it('does not count a restore of a soft-deleted subject, as documented', function
     $first->restore();
 
     expect(Document::query()->where('status', 'b')->where('user_id', 1)->count())->toBe(2);
+});
+
+it('refuses a moving scope column before it takes the quota lock or counts', function (): void {
+    quotaLifecycle(1);
+    $mover = Document::factory()->create(['user_id' => 1]);
+    $mover->user_id = 2;
+    $quotaQueries = 0;
+    DB::listen(function (QueryExecuted $query) use (&$quotaQueries): void {
+        if (str_contains($query->sql, 'lifecycle_quota_locks') || str_contains($query->sql, '"documents"."status" =')) {
+            $quotaQueries++;
+        }
+    });
+
+    expect(fn () => $mover->transition('go'))->toThrow(InvalidLifecycleUsageException::class, 'user_id')
+        ->and($quotaQueries)->toBe(0);
 });

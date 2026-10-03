@@ -40,7 +40,7 @@ use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
  * @property int $attempts
  * @property string|null $last_denial
  * @property ScheduleOutcome|null $outcome
- * @property bool $is_override
+ * @property bool $is_override an expireAt()/extend()/renew() expiry; on a cancelled expiry row, the neverExpire() mark of the stay
  * @property string|null $scheduled_by_type
  * @property int|string|null $scheduled_by_id
  * @property array<string, mixed>|null $context
