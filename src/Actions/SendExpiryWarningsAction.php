@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Actions;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
@@ -12,23 +13,29 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Events\LifecycleExpiring;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\UnknownLifecycleException;
+use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
 use RoundlyConsulting\PackageToolkit\Support\Config;
+use Throwable;
 
 /**
  * Fires due expiry warnings, each lead at most once per schedule row: the row advances with a
  * compare-and-swap on `warnings_sent`, so two concurrent warners fire once. Returns how many
- * warnings fired.
+ * warnings fired. A row that throws never aborts the pass (the sweep runs the due schedules
+ * after it): the exception is reported, and a row the current definitions cannot resolve (its
+ * model is no longer a subject, its lifecycle or state was removed) stops warning.
  */
 final readonly class SendExpiryWarningsAction
 {
     public function __construct(
         private DefinitionRegistry $registry,
         private Dispatcher $events,
+        private ExceptionHandler $exceptions,
     ) {}
 
     public function execute(SweepOptions $options): int
@@ -64,7 +71,7 @@ final readonly class SendExpiryWarningsAction
             }
 
             foreach ($rows as $schedule) {
-                $fired += $this->warn($schedule);
+                $fired += $this->isolated($schedule);
             }
 
             $last = $rows->last();
@@ -73,6 +80,22 @@ final readonly class SendExpiryWarningsAction
         }
 
         return $fired;
+    }
+
+    private function isolated(LifecycleSchedule $schedule): int
+    {
+        try {
+            return $this->warn($schedule);
+        } catch (UnknownLifecycleException|UnknownStateException $exception) {
+            $this->exceptions->report($exception);
+            // Unresolvable for good: the row stops warning; the due pass cancels or fails it.
+            $schedule->newQuery()->whereKey($schedule->id)->toBase()->update(['next_warn_at' => null]);
+        } catch (Throwable $exception) {
+            // Anything else (a listener, the database) may pass: the next sweep tries again.
+            $this->exceptions->report($exception);
+        }
+
+        return 0;
     }
 
     private function warn(LifecycleSchedule $schedule): int

@@ -767,7 +767,8 @@ each in its own transaction, in system context:
 - **Soft-deleted subject:** its schedules are paused until it is restored. A deleted subject
   cancels its schedules.
 - **An exception:** it is reported to your exception handler and counted as an attempt. The rest of
-  the sweep continues.
+  the sweep continues. A warning that throws is reported too and never stops the sweep; a warning
+  whose model, lifecycle or state no longer exists stops warning.
 
 ```php
 Lifecycles::sweep();                                  // SweepResult: warned, executed, deferred, failed, errored, cancelled, skipped, queued
