@@ -61,6 +61,15 @@ final class InvalidLifecycleUsageException extends LifecycleException
         ));
     }
 
+    public static function quotaScopeChanged(string $class, string $attribute): self
+    {
+        return new self(sprintf(
+            'The quota scope column [%s] of [%s] changed during a transition into a state with that quota. The quota counts the stored partition, so save the column on its own, before or after the transition.',
+            $attribute,
+            $class,
+        ));
+    }
+
     public static function invalidDateAttribute(string $attribute, mixed $value): self
     {
         return new self(sprintf(

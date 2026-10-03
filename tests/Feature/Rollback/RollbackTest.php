@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\RollbackRequest;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Events\LifecycleRolledBack;
@@ -316,4 +317,23 @@ it('refuses a rollbackTo through any transition that respects the freeze', funct
         ->and(Lifecycles::for($document)->canRollbackTo($initial)->codes())->toBe(['frozen'])
         ->and(rollbackCodes(fn () => Lifecycles::for($document)->rollbackTo($initial)))->toBe(['frozen'])
         ->and($document->fresh()?->status)->toBe('c');
+});
+
+it('counts the quota of the partition a rollback restores', function (): void {
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        $l->states(['draft', 'live', 'moved'])->initial('draft');
+        $l->state('live')->quota(1, 'user_id');
+        $l->transition('publish')->from('draft')->to('live');
+        $l->transition('transfer')->from('live')->to('moved')->snapshots('user_id')
+            ->handledBy(fn (TransitionContext $c) => $c->subject->setAttribute('user_id', 2))
+            ->reversible(withoutCompensation: true);
+    });
+    $moved = Document::factory()->create(['user_id' => 1]);
+    $moved->transition('publish');
+    $moved->transition('transfer');
+    Document::factory()->create(['user_id' => 1])->transition('publish');
+
+    expect(Lifecycles::for($moved)->canRollback()->codes())->toBe(['quota_exceeded'])
+        ->and(rollbackCodes(fn () => Lifecycles::for($moved)->rollback()))->toBe(['quota_exceeded'])
+        ->and(Document::query()->where('status', 'live')->where('user_id', 1)->count())->toBe(1);
 });

@@ -649,13 +649,16 @@ $lifecycle->transition('reopen')
 Quotas count the subject's own table: rows in the target state with the same scope values (a
 `NULL` scope value is its own group), excluding the subject itself and soft-deleted rows, and
 ignoring global scopes, so a console sweep counts the same as a tenant request. They are checked when a
-transition or rollback **enters** the state; creation, direct writes and self-transitions are not
-counted, and a quota on the initial state is a definition error. Concurrent entries are
+transition or rollback **enters** the state; creation, direct writes, restoring a soft-deleted
+subject and self-transitions are not counted, and a quota on the initial state is a definition error. Concurrent entries are
 serialised through a lock row per scope value, so a burst of requests cannot exceed the limit (proven
 race-free under real concurrent load on PostgreSQL and MySQL). A quota of `0` refuses everyone.
 
 Changing a scope column of a model that is already in a quota'd state (moving a listing from user
-A to user B with a normal `save()`) is not re-checked.
+A to user B with a normal `save()`) is not re-checked. A transition into a quota'd state that would
+also change a scope column (an unsaved edit or a handler) throws
+`InvalidLifecycleUsageException::quotaScopeChanged`: save the column on its own. A rollback counts
+the quota in the partition it restores.
 
 Rate-limit hits are counted only when every other check passes. They are never refunded, even when
 the transaction later fails.

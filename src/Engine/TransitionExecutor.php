@@ -20,6 +20,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionResult;
 use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
+use RoundlyConsulting\Lifecycle\Definition\StateDefinition;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Events\LifecycleTransitionDenied;
 use RoundlyConsulting\Lifecycle\Events\LifecycleTransitioned;
@@ -171,18 +172,21 @@ final readonly class TransitionExecutor
         $to = $transition->to;
         $self = $from === $to;
         $now = $context->now;
+        $target = $definition->state($to);
+
+        // The quota counted the stored partition: an entry may not also move the subject to another.
+        $this->guardQuotaScope($subject, $target, $self);
 
         $this->events->dispatch(new LifecycleTransitioning(
             $subject, $lifecycle, $transition->name, $context->from, $context->to, $context->actor, $context->system,
         ));
 
-        $target = $definition->state($to);
         $captured = array_values(array_unique([...$transition->snapshots, ...$target->stamps]));
         $before = Snapshotter::capture($subject, $captured);
 
         $this->write($subject, $lifecycle, $definition, $from, $to, $target->stamps);
 
-        $this->writes->engine(function () use ($definition, $context, $from, $to, $self): void {
+        $this->writes->engine(function () use ($definition, $context, $from, $to, $self, $target): void {
             if (! $self) {
                 foreach ($definition->state($from)->onExit as $hook) {
                     $this->runHook($hook, new StateHookContext($context->subject, $context->lifecycle, $context->from ?? $definition->value($from), $context));
@@ -198,6 +202,8 @@ final readonly class TransitionExecutor
                     $this->runHook($hook, new StateHookContext($context->subject, $context->lifecycle, $context->to, $context));
                 }
             }
+
+            $this->guardQuotaScope($context->subject, $target, $self);
 
             if ($context->subject->isDirty()) {
                 $context->subject->save();
@@ -325,6 +331,25 @@ final readonly class TransitionExecutor
 
         $subject->setRawAttributes($attributes);
         $subject->syncOriginalAttributes(array_keys($values));
+    }
+
+    /**
+     * A transition entering a state with quotas may not change a scope column — neither the
+     * caller's unsaved edit nor a handler's: the count and the mutex were for the stored values.
+     */
+    private function guardQuotaScope(Model $subject, StateDefinition $target, bool $self): void
+    {
+        if ($self) {
+            return;
+        }
+
+        foreach ($target->quotas as $quota) {
+            foreach ($quota->scope as $column) {
+                if ($subject->isDirty($column)) {
+                    throw InvalidLifecycleUsageException::quotaScopeChanged($subject::class, $column);
+                }
+            }
+        }
     }
 
     /**

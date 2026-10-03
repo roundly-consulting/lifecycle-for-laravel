@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Exceptions\QuotaScopeException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
@@ -94,4 +96,58 @@ it('checks every quota of the target state', function (): void {
     Document::factory()->create(['user_id' => 1])->transition('go');
 
     expect(Lifecycles::for(Document::factory()->create(['user_id' => 2]))->check('go')->codes())->toBe(['quota_exceeded']);
+});
+
+it('refuses a transition into a quota\'d state that also moves the subject to another partition', function (): void {
+    quotaLifecycle(1);
+    Document::factory()->create(['user_id' => 2])->transition('go');
+    $mover = Document::factory()->create(['user_id' => 1]);
+    $mover->user_id = 2;
+
+    expect(fn () => $mover->transition('go'))->toThrow(InvalidLifecycleUsageException::class, 'user_id')
+        ->and($mover->fresh()?->status)->toBe('a')
+        ->and($mover->fresh()?->user_id)->toBe(1)
+        ->and($mover->user_id)->toBe(2)
+        ->and(Document::query()->where('status', 'b')->where('user_id', 2)->count())->toBe(1);
+});
+
+it('refuses a handler that moves the subject to another quota partition', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn (TransitionBuilder $go) => $go
+        ->handledBy(function (TransitionContext $c): void {
+            $c->subject->setAttribute('user_id', 2);
+        }))->state('b')->quota(1, 'user_id'));
+    $occupant = Document::factory()->create(['user_id' => 2]);
+    Lifecycles::allowDirectWrites(fn () => $occupant->update(['status' => 'b']));
+    $mover = Document::factory()->create(['user_id' => 1]);
+
+    expect(fn () => $mover->transition('go'))->toThrow(InvalidLifecycleUsageException::class, 'user_id')
+        ->and($mover->fresh()?->status)->toBe('a')
+        ->and(Document::query()->where('status', 'b')->where('user_id', 2)->count())->toBe(1);
+});
+
+it('lets a self-transition or a state without quotas change a scope column', function (): void {
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        baseLifecycle($l)->state('b')->quota(5, 'user_id');
+        $l->transition('stay')->from('b')->to('b')->allowSelf();
+    });
+    $document = Document::factory()->create(['user_id' => 1]);
+    $document->transition('go');
+    $document->user_id = 3;
+    $document->transition('stay');
+    $document->user_id = 4;
+    $document->transition('finish');
+
+    expect($document->fresh()?->user_id)->toBe(4);
+});
+
+it('does not count a restore of a soft-deleted subject, as documented', function (): void {
+    quotaLifecycle(1);
+    $first = Document::factory()->create(['user_id' => 1]);
+    $first->transition('go');
+    $first->delete();
+    Document::factory()->create(['user_id' => 1])->transition('go');
+
+    $first->restore();
+
+    expect(Document::query()->where('status', 'b')->where('user_id', 1)->count())->toBe(2);
 });

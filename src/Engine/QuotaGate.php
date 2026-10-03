@@ -55,10 +55,13 @@ final readonly class QuotaGate
 
     /**
      * The quotas of `$to` for a subject entering it from `$from` (nothing when they are equal).
+     * Scope values come from the stored row, except those in `$scopeValues` — the values a
+     * rollback is about to restore from a snapshot.
      *
+     * @param  array<string, mixed>  $scopeValues
      * @return list<Denial>
      */
-    public function entering(Model $subject, string $lifecycle, CompiledDefinition $definition, string $from, string $to, string $transitionLabel, bool $lock): array
+    public function entering(Model $subject, string $lifecycle, CompiledDefinition $definition, string $from, string $to, string $transitionLabel, bool $lock, array $scopeValues = []): array
     {
         if ($from === $to) {
             return [];
@@ -76,7 +79,7 @@ final readonly class QuotaGate
             $values = [];
 
             foreach ($quota->scope as $column) {
-                $values[$column] = $subject->getRawOriginal($column);
+                $values[$column] = array_key_exists($column, $scopeValues) ? $scopeValues[$column] : $subject->getRawOriginal($column);
             }
 
             $key = json_encode(array_values($values), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);

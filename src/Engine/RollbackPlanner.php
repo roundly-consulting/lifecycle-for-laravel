@@ -162,7 +162,7 @@ final readonly class RollbackPlanner
         $final = (string) $targets[count($targets) - 1]->from_state;
 
         if ($denials === [] && $definition->hasState($final)) {
-            $denials = $this->quotas->entering($subject, $lifecycle, $definition, $current, $final, $topTransition?->label() ?? '', $lock);
+            $denials = $this->quotas->entering($subject, $lifecycle, $definition, $current, $final, $topTransition?->label() ?? '', $lock, self::restored($targets));
         }
 
         return new RollbackPlan($targets, Decision::from($denials), $final);
@@ -189,6 +189,28 @@ final readonly class RollbackPlanner
                 ->from($table.' as lifecycle_reverts')
                 ->whereColumn('lifecycle_reverts.reverts_id', $table.'.id'))
             ->orderByDesc($table.'.id');
+    }
+
+    /**
+     * The snapshot values the executor will leave behind: each reverted row restores its
+     * `before` values, newest first, so the oldest row's value of an attribute wins.
+     *
+     * @param  list<LifecycleTransition>  $targets
+     * @return array<string, mixed>
+     */
+    private static function restored(array $targets): array
+    {
+        $values = [];
+
+        foreach ($targets as $row) {
+            $before = $row->snapshot['before'] ?? null;
+
+            foreach (is_array($before) ? $before : [] as $attribute => $value) {
+                $values[(string) $attribute] = $value;
+            }
+        }
+
+        return $values;
     }
 
     /**
