@@ -10,8 +10,6 @@ use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Engine\LockedSubject;
 use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
 use RoundlyConsulting\Lifecycle\Enums\ExpiryChange;
-use RoundlyConsulting\Lifecycle\Enums\ScheduleOutcome;
-use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Exceptions\ExpiryException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
@@ -45,9 +43,7 @@ final readonly class ChangeExpiryAction
             $pending = $this->schedules->open($request->subject, $request->lifecycle, ScheduleBook::EXPIRY_SLOT);
 
             if ($request->change === ExpiryChange::Clear) {
-                if ($pending !== null) {
-                    $this->schedules->finish($pending, ScheduleStatus::Cancelled, ScheduleOutcome::Cancelled, $now);
-                }
+                $this->schedules->clear($request->subject, $request->lifecycle, $ttl, $state, $now, $actor);
 
                 return null;
             }

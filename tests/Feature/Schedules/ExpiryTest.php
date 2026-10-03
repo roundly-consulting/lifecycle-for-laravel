@@ -128,6 +128,21 @@ it('keeps the expiry on a self-transition', function (): void {
     expect(expiryRow()->expires_at->toDateTimeString())->toBe('2026-10-03 10:00:00');
 });
 
+it('keeps an expiry cleared with neverExpire() cleared through a self-transition', function (): void {
+    defineDocumentLifecycle(function (LifecycleBuilder $l): void {
+        baseLifecycle($l)->transition('touch')->from('b')->to('b')->allowSelf();
+        $l->transition('lapse')->from('b')->to('c')->systemOnly();
+        $l->state('b')->ttl('1 day')->expiresVia('lapse');
+    });
+    $document = Document::factory()->create();
+    $document->transition('go');
+    Lifecycles::for($document)->neverExpire();
+    travelTo('2026-10-02 12:00:00');
+    $document->transition('touch');
+
+    expect(Lifecycles::for($document)->expiresAt())->toBeNull();
+});
+
 it('sets, extends, renews and clears the expiry, restarting warnings each time', function (): void {
     $listing = Listing::factory()->create();
     $listing->transition('publish');

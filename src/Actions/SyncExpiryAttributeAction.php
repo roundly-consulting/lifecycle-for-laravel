@@ -9,15 +9,14 @@ use RoundlyConsulting\Lifecycle\Definition\CompiledDefinition;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\LockedSubject;
 use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
-use RoundlyConsulting\Lifecycle\Enums\ScheduleOutcome;
-use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 
 /**
  * Runs from the `saved` model event: when a state's expiry comes from an attribute and the
  * host changed that attribute, the pending expiry follows it (a null attribute clears it).
- * An expiry set with `expireAt()`/`extend()`/`renew()` is an override and stays.
+ * An expiry set with `expireAt()`/`extend()`/`renew()` is an override and stays, and so does a
+ * stay cleared with `neverExpire()`.
  *
  * @internal
  */
@@ -33,42 +32,37 @@ final readonly class SyncExpiryAttributeAction
     {
         $lifecycles = $lifecycle === null ? array_keys($this->registry->definitionsOf($subject)) : [$lifecycle];
 
-        foreach ($lifecycles as $lifecycle) {
-            $lifecycle = (string) $lifecycle;
-            $definition = $this->registry->of($subject, $lifecycle);
-            $raw = $subject->getAttributes()[$lifecycle] ?? null;
-            $ttl = $raw === null ? null : $definition->state($definition->key($raw))->ttl;
+        foreach ($lifecycles as $name) {
+            $name = (string) $name;
 
-            if ($ttl === null || $ttl->attribute === null || ! $subject->wasChanged($ttl->attribute)) {
+            if (! $this->expiryAttributeChanged($subject, $this->registry->of($subject, $name))) {
                 continue;
             }
 
-            $this->locked->run($subject, $lifecycle, function (LifecycleState $record, CompiledDefinition $definition) use ($subject, $lifecycle, $ttl): void {
-                $now = Clock::now();
-                $pending = $this->schedules->open($subject, $lifecycle, ScheduleBook::EXPIRY_SLOT);
+            // The TTL is the one of the state the locked row is in — a stale model may still
+            // believe it is in another. A soft-deleted subject's rows follow too, and stay paused.
+            $this->locked->run($subject, $name, function (LifecycleState $record, CompiledDefinition $definition) use ($subject, $name): void {
+                $ttl = $definition->state($record->state)->ttl;
 
-                if ($pending !== null && $pending->is_override) {
+                if ($ttl === null || $ttl->attribute === null || ! $subject->wasChanged($ttl->attribute)) {
                     return;
                 }
 
-                $expiresAt = $this->schedules->resolveExpiry($subject, $ttl, $now);
-
-                if ($expiresAt === null) {
-                    if ($pending !== null) {
-                        $this->schedules->finish($pending, ScheduleStatus::Cancelled, ScheduleOutcome::Cancelled, $now);
-                    }
-
-                    return;
-                }
-
-                $this->schedules->replace(
-                    $subject,
-                    $lifecycle,
-                    ScheduleBook::EXPIRY_SLOT,
-                    $this->schedules->expiryValues($ttl, $record->state, $expiresAt, $pending?->created_by_transition_id, false),
-                    $now,
-                );
-            });
+                $this->schedules->followAttribute($subject, $name, $record, $ttl, Clock::now());
+            }, allowTrashed: true);
         }
+    }
+
+    private function expiryAttributeChanged(Model $subject, CompiledDefinition $definition): bool
+    {
+        foreach ($definition->expiringStates() as $state) {
+            $attribute = $state->ttl?->attribute;
+
+            if ($attribute !== null && $subject->wasChanged($attribute)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

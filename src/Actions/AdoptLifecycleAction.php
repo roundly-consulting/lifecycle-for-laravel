@@ -26,7 +26,11 @@ final readonly class AdoptLifecycleAction
         private SubjectLocker $locker,
     ) {}
 
-    public function execute(Model $subject, string $lifecycle, bool $scheduleExpiry = true): bool
+    /**
+     * `$allowTrashed`: adopt a soft-deleted subject too (its new schedules are paused) — what the
+     * `saved` hook does for an allowed direct write on a trashed model.
+     */
+    public function execute(Model $subject, string $lifecycle, bool $scheduleExpiry = true, bool $allowTrashed = false): bool
     {
         if (! $subject->exists) {
             throw SubjectNotPersistedException::for($subject);
@@ -36,9 +40,9 @@ final readonly class AdoptLifecycleAction
         $restore = RestorePoint::capture($subject);
 
         try {
-            $changed = Transactions::run($subject, function () use ($subject, $lifecycle, $definition, $restore, $scheduleExpiry): bool {
+            $changed = Transactions::run($subject, function () use ($subject, $lifecycle, $definition, $restore, $scheduleExpiry, $allowTrashed): bool {
                 $restore->restore();
-                $this->locker->lock($subject);
+                $this->locker->lock($subject, $allowTrashed);
 
                 return $this->records->lock($subject, $lifecycle, $definition, $scheduleExpiry)->changed;
             });

@@ -16,10 +16,12 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Exceptions\ConcurrentTransitionException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\LockedRow;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
+use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 
 /**
  * Keeps the schedule rows of a subject in step with its state: entering a state schedules
@@ -53,8 +55,119 @@ final readonly class ScheduleBook
         LockedRow::firstOrInsert(
             ScheduleModel::queryFor($subject),
             $this->slotKey($subject, $lifecycle, self::EXPIRY_SLOT),
-            $this->expiryValues($ttl, $state, $expiresAt, $historyId, false),
+            self::forSubject($subject, $this->expiryValues($ttl, $state, $expiresAt, $historyId, false)),
         );
+    }
+
+    /**
+     * A self-transition stays in `$record->state`: its expiry is kept — an attribute-based one
+     * follows the attribute (a handler may have moved it), and a stay cleared with
+     * `neverExpire()` gets none back.
+     */
+    public function stay(Model $subject, string $lifecycle, CompiledDefinition $definition, LifecycleState $record, int $historyId, CarbonImmutable $now): void
+    {
+        $ttl = $definition->state($record->state)->ttl;
+
+        if ($ttl === null) {
+            return;
+        }
+
+        if ($ttl->attribute !== null) {
+            $this->followAttribute($subject, $lifecycle, $record, $ttl, $now, $historyId);
+
+            return;
+        }
+
+        if ($this->open($subject, $lifecycle, self::EXPIRY_SLOT) === null && ! $this->clearedThisStay($subject, $lifecycle, $record)) {
+            $this->enter($subject, $lifecycle, $definition, $record->state, $historyId, $now);
+        }
+    }
+
+    /**
+     * An attribute-based expiry follows its attribute: the pending row is replaced when the
+     * instant differs, cancelled when the attribute is null. An override (`expireAt()`,
+     * `extend()`, `renew()`) and a stay cleared with `neverExpire()` win over the attribute.
+     */
+    public function followAttribute(Model $subject, string $lifecycle, LifecycleState $record, TtlRule $ttl, CarbonImmutable $now, ?int $historyId = null): void
+    {
+        $pending = $this->open($subject, $lifecycle, self::EXPIRY_SLOT);
+
+        if ($pending !== null && $pending->is_override) {
+            return;
+        }
+
+        if ($pending === null && $this->clearedThisStay($subject, $lifecycle, $record)) {
+            return;
+        }
+
+        $expiresAt = $this->resolveExpiry($subject, $ttl, $now);
+
+        if ($expiresAt === null) {
+            if ($pending !== null) {
+                $this->finish($pending, ScheduleStatus::Cancelled, ScheduleOutcome::Cancelled, $now);
+            }
+
+            return;
+        }
+
+        if ($pending?->expires_at !== null && $pending->expires_at->equalTo($expiresAt)) {
+            return;
+        }
+
+        $this->replace(
+            $subject,
+            $lifecycle,
+            self::EXPIRY_SLOT,
+            $this->expiryValues($ttl, $record->state, $expiresAt, $pending->created_by_transition_id ?? $historyId, false),
+            $now,
+        );
+    }
+
+    /**
+     * `neverExpire()`: the pending expiry ends `cancelled` and the stay is marked, so neither a
+     * later change of the expiry attribute nor a self-transition schedules one again. The mark
+     * is the cancelled row with `is_override` (a finished row is inserted when nothing was
+     * pending); it holds while the subject stays in the state it was made in.
+     */
+    public function clear(Model $subject, string $lifecycle, TtlRule $ttl, string $state, CarbonImmutable $now, ?Model $actor = null): bool
+    {
+        $pending = $this->open($subject, $lifecycle, self::EXPIRY_SLOT);
+
+        if ($pending !== null) {
+            $this->finish($pending, ScheduleStatus::Cancelled, ScheduleOutcome::Cancelled, $now);
+            $pending->newQuery()->whereKey($pending->getKey())->toBase()->update(['is_override' => true]);
+
+            return true;
+        }
+
+        $marker = ScheduleModel::newFor($subject);
+        $marker->forceFill([
+            ...$this->slotKey($subject, $lifecycle, self::EXPIRY_SLOT),
+            ...$this->expiryValues($ttl, $state, $now, null, true, $actor),
+            'pending_slot' => null,
+            'status' => ScheduleStatus::Cancelled,
+            'outcome' => ScheduleOutcome::Cancelled,
+            'expires_at' => null,
+            'next_warn_at' => null,
+            'finished_at' => $now,
+        ])->save();
+
+        return false;
+    }
+
+    /**
+     * Whether `neverExpire()` cleared the expiry during the current stay.
+     */
+    public function clearedThisStay(Model $subject, string $lifecycle, LifecycleState $record): bool
+    {
+        return ScheduleModel::of($subject, $lifecycle)
+            ->where('kind', ScheduleKind::Expiry->value)
+            ->where('for_state', $record->state)
+            ->where('status', ScheduleStatus::Cancelled->value)
+            ->where('outcome', ScheduleOutcome::Cancelled->value)
+            ->where('is_override', true)
+            ->where('finished_at', '>=', Clock::format($record->entered_at))
+            ->exists();
     }
 
     /**
@@ -168,13 +281,13 @@ final readonly class ScheduleBook
         }
 
         $schedule = ScheduleModel::newFor($subject);
-        $schedule->forceFill([
+        $schedule->forceFill(self::forSubject($subject, [
             'attempts' => 0,
             'warnings_sent' => 0,
             'is_override' => false,
             ...$this->slotKey($subject, $lifecycle, $slot),
             ...$values,
-        ])->save();
+        ]))->save();
 
         return $schedule;
     }
@@ -278,6 +391,21 @@ final readonly class ScheduleBook
             'lifecycle' => $lifecycle,
             'pending_slot' => $slot,
         ];
+    }
+
+    /**
+     * A row opened for a soft-deleted subject waits (`paused`) like the subject's other rows.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
+     */
+    private static function forSubject(Model $subject, array $values): array
+    {
+        if (($values['status'] ?? null) === ScheduleStatus::Pending && SoftDeletion::isTrashed($subject)) {
+            $values['status'] = ScheduleStatus::Paused;
+        }
+
+        return $values;
     }
 
     private function move(Model $subject, ScheduleStatus $from, ScheduleStatus $to): void

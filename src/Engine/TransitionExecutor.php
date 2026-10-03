@@ -251,11 +251,12 @@ final readonly class TransitionExecutor
             'counters' => CounterBook::increment($record->counters, $transition->name, $now),
         ])->save();
 
-        if (! $self) {
+        if ($self) {
+            $this->schedules->stay($subject, $lifecycle, $definition, $record, $row->id, $now);
+        } else {
             $this->schedules->leave($subject, $lifecycle, $from, $row->id, $now);
+            $this->schedules->enter($subject, $lifecycle, $definition, $to, $row->id, $now);
         }
-
-        $this->schedules->enter($subject, $lifecycle, $definition, $to, $row->id, $now);
 
         $this->events->dispatch(new LifecycleTransitioned(
             subject: $subject,

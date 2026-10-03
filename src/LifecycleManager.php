@@ -326,7 +326,7 @@ class LifecycleManager
             }
 
             if ($subject->isDirty($lifecycle) && $subject->wasChanged($lifecycle)) {
-                $this->container()->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle);
+                $this->container()->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle, allowTrashed: true);
             }
 
             $this->container()->make(SyncExpiryAttributeAction::class)->execute($subject, $lifecycle);

@@ -399,7 +399,7 @@ container on every run. `define()` must not read request state; dynamic values b
 | `from(...$states)` | Source states; `'*'` = every non-terminal state except the target. |
 | `fromAnyExcept(...$states)` | The wildcard minus the listed states. |
 | `to($state)` | The target state. |
-| `allowSelf()` | Allow `from` to contain `to` (a self-transition keeps `entered_at` and its schedules). |
+| `allowSelf()` | Allow `from` to contain `to` (a self-transition keeps `entered_at` and its schedules; an `expiresAtAttribute` expiry follows the attribute). |
 | `systemOnly()` / `allowSystem()` | Only system code / users and system code. Without either, system code is refused. |
 | `requiresActor()`, `actors(User::class, …)`, `actor(fn (?Model $actor, Model $subject) => bool)` | Actor rules. |
 | `ability('publish')` | Gate ability, checked as `Gate::forUser($actor)->allows('publish', [$subject, $context])`. |

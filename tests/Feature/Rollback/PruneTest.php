@@ -81,3 +81,19 @@ it('drops rollback points older than the cutoff', function (): void {
         expect($exception->decision()->codes())->toBe(['not_on_path']);
     }
 });
+
+it('keeps the neverExpire() mark of a stay that is still running', function (): void {
+    $listing = Listing::query()->sole();
+    Lifecycles::for($listing)->neverExpire();
+    $marked = Listing::factory()->create();
+    $marked->transition('publish');
+    Lifecycles::for($marked)->neverExpire();
+    $marked->transition('close');
+    Carbon::setTestNow(CarbonImmutable::parse('2026-06-01 10:00:00', 'UTC'));
+
+    Lifecycles::prune(new PruneOptions(null, 30));
+
+    $marks = LifecycleSchedule::query()->where('is_override', true)->where('outcome', 'cancelled')->pluck('subject_id')->all();
+
+    expect($marks)->toBe([$listing->id]);
+});
