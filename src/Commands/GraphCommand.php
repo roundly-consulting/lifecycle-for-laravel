@@ -43,7 +43,15 @@ final class GraphCommand extends Command
         $output = $this->option('output');
 
         if (is_string($output) && $output !== '') {
-            file_put_contents($output, $graph);
+            $directory = dirname($output);
+            $writable = is_dir($directory) && (file_exists($output) ? is_writable($output) : is_writable($directory));
+
+            if (! $writable || file_put_contents($output, $graph) === false) {
+                $this->error(sprintf('Cannot write the graph to %s.', $output));
+
+                return self::FAILURE;
+            }
+
             $this->info(sprintf('Written to %s.', $output));
 
             return self::SUCCESS;

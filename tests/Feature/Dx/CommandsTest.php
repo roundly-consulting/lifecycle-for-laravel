@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\Invalid\BrokenLifecycle;
@@ -49,6 +50,16 @@ it('writes a graph to a file', function (): void {
         ->and((string) file_get_contents($file))->toStartWith('digraph "TicketLifecycle"');
 
     unlink($file);
+});
+
+it('refuses an output path it cannot write', function (): void {
+    $file = sys_get_temp_dir().'/lifecycle-missing-'.uniqid().'/graph.dot';
+
+    [$code, $output] = artisan('lifecycle:graph', ['definition' => TicketLifecycle::class, '--output' => $file]);
+
+    expect($code)->toBe(1)
+        ->and($output)->toContain('Cannot write the graph to '.$file)
+        ->and(file_exists($file))->toBeFalse();
 });
 
 it('refuses an unknown format or target', function (array $parameters, string $message): void {
@@ -141,6 +152,15 @@ it('does not warn about the sweep for a definition without expiries or system tr
     expect($code)->toBe(0)->and($output)->not->toContain('lifecycle:sweep');
 });
 
+it('does not fail the strict validation over a sweep scheduled as an unnamed closure', function (): void {
+    config()->set('lifecycle.subjects', [Listing::class]);
+    app(Schedule::class)->call(fn () => null)->everyMinute();
+
+    [$code, $output] = artisan('lifecycle:validate', ['--strict' => true]);
+
+    expect($code)->toBe(0)->and($output)->not->toContain('is not scheduled');
+});
+
 it('warns when the sweep of a subject connection is not scheduled', function (): void {
     defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn ($go) => $go->allowSystem()));
     config()->set('database.connections.secondary', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
@@ -202,6 +222,24 @@ it('shows one subject lifecycle', function (): void {
     [$code, $output] = artisan('lifecycle:show', ['subject' => Listing::class, 'id' => $listing->id, '--history' => 0, '--lifecycle' => 'status']);
 
     expect($code)->toBe(0)->and($output)->not->toContain('reverted');
+});
+
+it('shows a subject whose lifecycle attribute is not initialised yet', function (): void {
+    $id = DB::table('listings')->insertGetId(['status' => null, 'created_at' => now(), 'updated_at' => now()]);
+
+    [$code, $output] = artisan('lifecycle:show', ['subject' => Listing::class, 'id' => $id]);
+
+    expect($code)->toBe(0)
+        ->and($output)->toContain('not initialised — lifecycle:adopt initialises it')
+        ->and($output)->toMatch('/system can\s+\|\s+-\s/');
+});
+
+it('refuses a subject whose stored state the definition does not declare', function (): void {
+    $id = DB::table('listings')->insertGetId(['status' => 'gone', 'created_at' => now(), 'updated_at' => now()]);
+
+    [$code, $output] = artisan('lifecycle:show', ['subject' => Listing::class, 'id' => $id]);
+
+    expect($code)->toBe(1)->and($output)->toContain('The state [gone] is not declared');
 });
 
 it('refuses an unknown subject or row', function (array $parameters, string $message): void {

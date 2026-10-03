@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Lifecycle\Commands;
 use Illuminate\Console\Command;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
+use RoundlyConsulting\Lifecycle\Exceptions\LifecycleException;
 use RoundlyConsulting\Lifecycle\Http\Resources\TransitionRecordResource;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use Throwable;
@@ -46,19 +47,30 @@ final class ShowCommand extends Command
             return self::FAILURE;
         }
 
-        $state = $handle->state();
         $definition = $handle->definition();
+        // A NULL attribute (a row inserted without the model, a column added later) is
+        // initialised by the next mutation or lifecycle:adopt.
+        $initialised = ($subject->getAttributes()[$handle->lifecycle] ?? null) !== null;
+
+        try {
+            $key = $initialised ? $definition->key($handle->state()) : null;
+            $allowed = $initialised ? $handle->allowedTransitions() : [];
+        } catch (LifecycleException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->table(['', ''], [
             ['lifecycle', $handle->lifecycle],
-            ['state', $definition->stateLabel($definition->key($state)).' ('.$definition->key($state).')'],
+            ['state', $key === null ? 'not initialised — lifecycle:adopt initialises it' : $definition->stateLabel($key).' ('.$key.')'],
             ['entered at', $handle->enteredAt()?->toIso8601String() ?? '-'],
             ['version', (string) $handle->version()],
             ['frozen', $handle->isFrozen() ? 'until '.($handle->frozenUntil()?->toIso8601String() ?? 'unfrozen') : 'no'],
             ['expires at', $handle->expiresAt()?->toIso8601String() ?? '-'],
             ['system can', implode(', ', array_map(
                 static fn (AvailableTransition $transition): string => $transition->name,
-                $handle->allowedTransitions(),
+                $allowed,
             )) ?: '-'],
         ]);
 

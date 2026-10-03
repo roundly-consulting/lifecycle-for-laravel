@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Support;
 
+use Illuminate\Console\Scheduling\CallbackEvent;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Container\Container;
@@ -20,7 +21,10 @@ final class SweepSchedule
 {
     /**
      * Whether a sweep of `$connection`'s package tables is scheduled (null = the default
-     * connection): `lifecycle:sweep`, with `--database=<connection>` for any other one.
+     * connection): `lifecycle:sweep`, with `--database=<connection>` for any other one — a
+     * command, or a closure / job named `lifecycle:sweep` (`->name('lifecycle:sweep')`). An
+     * unnamed closure may sweep too, so with one scheduled and no sweep found the answer is
+     * unknown (null), not "no".
      */
     public static function isScheduled(?string $connection = null): ?bool
     {
@@ -31,19 +35,22 @@ final class SweepSchedule
         }
 
         $wanted = self::connection($connection);
+        $unknown = false;
 
         foreach ($container->make(Schedule::class)->events() as $event) {
             if (self::sweeps($event) && self::connection(self::database($event)) === $wanted) {
                 return true;
             }
+
+            $unknown = $unknown || ($event instanceof CallbackEvent && ($event->description ?? '') === '');
         }
 
-        return false;
+        return $unknown ? null : false;
     }
 
     private static function sweeps(Event $event): bool
     {
-        return is_string($event->command) && str_contains($event->command, 'lifecycle:sweep');
+        return str_contains(self::text($event), 'lifecycle:sweep');
     }
 
     /**
@@ -51,7 +58,15 @@ final class SweepSchedule
      */
     private static function database(Event $event): ?string
     {
-        return preg_match('/--database[= ]+[\'"]?([^\s\'"]+)/', (string) $event->command, $match) === 1 ? $match[1] : null;
+        return preg_match('/--database[= ]+[\'"]?([^\s\'"]+)/', self::text($event), $match) === 1 ? $match[1] : null;
+    }
+
+    /**
+     * A command's command line, or the name of a closure or job.
+     */
+    private static function text(Event $event): string
+    {
+        return is_string($event->command) ? $event->command : (string) $event->description;
     }
 
     /**

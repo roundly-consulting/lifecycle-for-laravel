@@ -9,7 +9,7 @@ use RoundlyConsulting\Lifecycle\Support\SweepSchedule;
 it('finds the sweep among the scheduled events', function (): void {
     expect(SweepSchedule::isScheduled())->toBeFalse();
 
-    app(Schedule::class)->call(fn () => null)->hourly();
+    app(Schedule::class)->call(fn () => null)->name('reports')->hourly();
     app(Schedule::class)->command('lifecycle:prune')->daily();
 
     expect(SweepSchedule::isScheduled())->toBeFalse();
@@ -41,4 +41,18 @@ it('tells the sweep of each database connection apart', function (): void {
 
     expect(SweepSchedule::isScheduled())->toBeTrue()
         ->and(SweepSchedule::isScheduled(config('database.default')))->toBeTrue();
+});
+
+it('recognises a sweep scheduled as a named closure or job, and cannot tell an unnamed closure', function (): void {
+    app(Schedule::class)->job(new stdClass)->hourly();
+
+    expect(SweepSchedule::isScheduled())->toBeFalse();
+
+    app(Schedule::class)->call(fn () => null)->everyMinute();
+
+    expect(SweepSchedule::isScheduled())->toBeNull();
+
+    app(Schedule::class)->call(fn () => null)->name('lifecycle:sweep')->everyMinute();
+
+    expect(SweepSchedule::isScheduled())->toBeTrue();
 });
