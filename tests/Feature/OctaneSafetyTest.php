@@ -2,13 +2,19 @@
 
 declare(strict_types=1);
 
+use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Gate;
+use RoundlyConsulting\Lifecycle\Actions\ApplyTransitionAction;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
+use RoundlyConsulting\Lifecycle\Engine\GuardPipeline;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\LifecycleManager;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Handlers\CompensatingHandler;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Listing;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\User;
 
 /**
@@ -60,4 +66,40 @@ it('asks the current Gate on every check', function (): void {
 
     expect($denied)->toBeFalse()
         ->and(Lifecycles::for($document)->by($user)->can('go'))->toBeTrue();
+});
+
+it('resolves actions from the current container, never the one it was built with', function (): void {
+    $manager = app(LifecycleManager::class);
+    $listing = Listing::factory()->create();
+    $application = Container::getInstance();
+    $sandbox = new Container;
+    $sandbox->bind(ApplyTransitionAction::class, static fn (): never => throw new RuntimeException('resolved from the sandbox'));
+
+    Container::setInstance($sandbox);
+
+    try {
+        expect(fn () => $manager->apply(new TransitionRequest($listing, 'status', 'publish')))
+            ->toThrow(RuntimeException::class, 'resolved from the sandbox');
+    } finally {
+        Container::setInstance($application);
+    }
+
+    expect($manager->apply(new TransitionRequest($listing, 'status', 'publish'))->transition)->toBe('publish');
+});
+
+it('resolves the fake from the current container too', function (): void {
+    $fake = Lifecycles::fake();
+    $listing = Listing::factory()->create();
+    $application = Container::getInstance();
+    $sandbox = new Container;
+    $sandbox->bind(GuardPipeline::class, static fn (): never => throw new RuntimeException('resolved from the sandbox'));
+
+    Container::setInstance($sandbox);
+
+    try {
+        expect(fn () => $fake->apply(new TransitionRequest($listing, 'status', 'publish')))
+            ->toThrow(RuntimeException::class, 'resolved from the sandbox');
+    } finally {
+        Container::setInstance($application);
+    }
 });

@@ -8,7 +8,6 @@ use BackedEnum;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Closure;
-use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
@@ -83,11 +82,6 @@ final class LifecycleFake extends LifecycleManager
 
     /** @var array<string, array<string, string>> the fake's open schedules per subject lifecycle: transition => state it was scheduled in */
     private array $scheduled = [];
-
-    public function __construct(Container $container)
-    {
-        parent::__construct($container);
-    }
 
     /**
      * Deny the next application of `$transition` (one-shot).
@@ -745,7 +739,7 @@ final class LifecycleFake extends LifecycleManager
      */
     private function scheduleDecision(ScheduleRequest $request, CompiledDefinition $definition, string $current): Decision|TransitionDefinition
     {
-        $transition = $this->container->make(GuardPipeline::class)->resolve($definition, $request->transition, null, $current);
+        $transition = $this->container()->make(GuardPipeline::class)->resolve($definition, $request->transition, null, $current);
 
         if ($transition instanceof Denial) {
             return Decision::deny($transition);
@@ -826,7 +820,7 @@ final class LifecycleFake extends LifecycleManager
      */
     private function evaluate(TransitionRequest $request, CompiledDefinition $definition, string $current, bool $consume): Decision|TransitionDefinition
     {
-        $transition = $this->container->make(GuardPipeline::class)
+        $transition = $this->container()->make(GuardPipeline::class)
             ->resolve($definition, $request->transition, $request->target, $current);
 
         if ($transition instanceof Denial) {

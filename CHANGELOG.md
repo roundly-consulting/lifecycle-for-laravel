@@ -53,4 +53,5 @@ Initial public release.
   `LifecycleExpiring`, `LifecycleExpired`, `LifecycleRolledBack`, `LifecycleFrozen`,
   `LifecycleUnfrozen`, `LifecycleAdopted` and `ScheduledTransitionFailed`.
 - English and Slovak translations; bigint, UUID and ULID keys; swappable models; a `php artisan
-  about` section.
+  about` section. Octane-safe: the manager keeps no state and resolves everything from the
+  current container.

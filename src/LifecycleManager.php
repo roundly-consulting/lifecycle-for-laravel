@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle;
 
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Container\Container as BaseContainer;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
@@ -57,8 +58,9 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * The package's public API: the root behind the Lifecycles facade, injectable by its own
- * class-string, bound as a singleton. Every method is thin — it resolves one action through
- * the container and calls `execute()` — so host container overrides and the fake both apply.
+ * class-string, bound as a singleton (it holds no state). Every method is thin — it resolves
+ * one action through the current container and calls `execute()` — so host container
+ * overrides and the fake both apply.
  * Model traits call this manager, never an action, so `Lifecycles::fake()` sees them too.
  *
  * Not final on purpose: LifecycleFake extends it, so code that constructor-injects this
@@ -66,10 +68,6 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  */
 class LifecycleManager
 {
-    public function __construct(
-        protected readonly Container $container,
-    ) {}
-
     /**
      * A handle on one lifecycle of a subject (the primary one when none is named).
      */
@@ -90,7 +88,7 @@ class LifecycleManager
 
     public function definitions(): DefinitionsAccessor
     {
-        return new DefinitionsAccessor($this->container);
+        return new DefinitionsAccessor($this->container());
     }
 
     public function schedules(): SchedulesAccessor
@@ -100,7 +98,7 @@ class LifecycleManager
 
     public function apply(TransitionRequest $request): TransitionResult
     {
-        return $this->container->make(ApplyTransitionAction::class)->execute($request);
+        return $this->container()->make(ApplyTransitionAction::class)->execute($request);
     }
 
     /**
@@ -117,7 +115,7 @@ class LifecycleManager
 
     public function check(TransitionRequest $request): Decision
     {
-        return $this->container->make(CheckTransitionAction::class)->execute($request);
+        return $this->container()->make(CheckTransitionAction::class)->execute($request);
     }
 
     /**
@@ -125,7 +123,7 @@ class LifecycleManager
      */
     public function available(AvailableTransitionsQuery $query): array
     {
-        return $this->container->make(ListAvailableTransitionsAction::class)->execute($query);
+        return $this->container()->make(ListAvailableTransitionsAction::class)->execute($query);
     }
 
     /**
@@ -133,12 +131,12 @@ class LifecycleManager
      */
     public function rollback(RollbackRequest $request): RollbackResult
     {
-        return $this->container->make(RollbackAction::class)->execute($request);
+        return $this->container()->make(RollbackAction::class)->execute($request);
     }
 
     public function checkRollback(RollbackRequest $request): Decision
     {
-        return $this->container->make(CheckRollbackAction::class)->execute($request);
+        return $this->container()->make(CheckRollbackAction::class)->execute($request);
     }
 
     /**
@@ -146,7 +144,7 @@ class LifecycleManager
      */
     public function prune(PruneOptions $options): PruneResult
     {
-        return $this->container->make(PruneAction::class)->execute($options);
+        return $this->container()->make(PruneAction::class)->execute($options);
     }
 
     /**
@@ -154,7 +152,7 @@ class LifecycleManager
      */
     public function freeze(FreezeRequest $request): bool
     {
-        return $this->container->make(FreezeAction::class)->execute($request);
+        return $this->container()->make(FreezeAction::class)->execute($request);
     }
 
     /**
@@ -162,7 +160,7 @@ class LifecycleManager
      */
     public function unfreeze(UnfreezeRequest $request): bool
     {
-        return $this->container->make(UnfreezeAction::class)->execute($request);
+        return $this->container()->make(UnfreezeAction::class)->execute($request);
     }
 
     /**
@@ -170,12 +168,12 @@ class LifecycleManager
      */
     public function schedule(ScheduleRequest $request): ScheduledTransition
     {
-        return $this->container->make(ScheduleTransitionAction::class)->execute($request);
+        return $this->container()->make(ScheduleTransitionAction::class)->execute($request);
     }
 
     public function cancelScheduled(CancelScheduleRequest $request): bool
     {
-        return $this->container->make(CancelScheduledTransitionAction::class)->execute($request);
+        return $this->container()->make(CancelScheduledTransitionAction::class)->execute($request);
     }
 
     /**
@@ -183,22 +181,22 @@ class LifecycleManager
      */
     public function changeExpiry(ExpiryChangeRequest $request): ?CarbonImmutable
     {
-        return $this->container->make(ChangeExpiryAction::class)->execute($request);
+        return $this->container()->make(ChangeExpiryAction::class)->execute($request);
     }
 
     public function runDueSchedules(SweepOptions $options): SweepResult
     {
-        return $this->container->make(RunDueSchedulesAction::class)->execute($options);
+        return $this->container()->make(RunDueSchedulesAction::class)->execute($options);
     }
 
     public function sendExpiryWarnings(SweepOptions $options): int
     {
-        return $this->container->make(SendExpiryWarningsAction::class)->execute($options);
+        return $this->container()->make(SendExpiryWarningsAction::class)->execute($options);
     }
 
     public function retrySchedule(int $scheduleId): bool
     {
-        return $this->container->make(RetryScheduleAction::class)->execute($scheduleId);
+        return $this->container()->make(RetryScheduleAction::class)->execute($scheduleId);
     }
 
     /**
@@ -215,7 +213,7 @@ class LifecycleManager
      */
     public function adopt(Model $subject, ?string $lifecycle = null): bool
     {
-        return $this->container->make(AdoptLifecycleAction::class)
+        return $this->container()->make(AdoptLifecycleAction::class)
             ->execute($subject, $this->registry()->lifecycleName($subject, $lifecycle));
     }
 
@@ -226,7 +224,7 @@ class LifecycleManager
      */
     public function adoptAll(string $class, ?string $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true): int
     {
-        return $this->container->make(AdoptModelLifecyclesAction::class)
+        return $this->container()->make(AdoptModelLifecyclesAction::class)
             ->execute($class, $this->registry()->lifecycleName($class, $lifecycle), $chunk, $scheduleExpiry);
     }
 
@@ -241,7 +239,7 @@ class LifecycleManager
      */
     public function allowDirectWrites(Closure $callback): mixed
     {
-        return $this->container->make(WriteGuard::class)->allowDirectWrites($callback);
+        return $this->container()->make(WriteGuard::class)->allowDirectWrites($callback);
     }
 
     /**
@@ -272,7 +270,7 @@ class LifecycleManager
      */
     public function initialize(Model $subject): void
     {
-        $this->container->make(InitializeLifecycleAction::class)->execute($subject);
+        $this->container()->make(InitializeLifecycleAction::class)->execute($subject);
     }
 
     /**
@@ -284,7 +282,7 @@ class LifecycleManager
      */
     public function guardDirectWrite(Model $subject): void
     {
-        $guard = $this->container->make(WriteGuard::class);
+        $guard = $this->container()->make(WriteGuard::class);
 
         if ($guard->inEngine()) {
             return;
@@ -321,7 +319,7 @@ class LifecycleManager
      */
     public function subjectSaved(Model $subject): void
     {
-        if ($this->container->make(WriteGuard::class)->inEngine()) {
+        if ($this->container()->make(WriteGuard::class)->inEngine()) {
             return;
         }
 
@@ -329,11 +327,11 @@ class LifecycleManager
             $lifecycle = (string) $lifecycle;
 
             if ($subject->isDirty($lifecycle) && $subject->wasChanged($lifecycle)) {
-                $this->container->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle);
+                $this->container()->make(AdoptLifecycleAction::class)->execute($subject, $lifecycle);
             }
         }
 
-        $this->container->make(SyncExpiryAttributeAction::class)->execute($subject);
+        $this->container()->make(SyncExpiryAttributeAction::class)->execute($subject);
     }
 
     /**
@@ -343,7 +341,7 @@ class LifecycleManager
      */
     public function subjectDeleted(Model $subject, bool $forced): void
     {
-        $this->container->make(SubjectDeletedAction::class)->execute($subject, $forced);
+        $this->container()->make(SubjectDeletedAction::class)->execute($subject, $forced);
     }
 
     /**
@@ -353,11 +351,21 @@ class LifecycleManager
      */
     public function subjectRestored(Model $subject): void
     {
-        $this->container->make(SubjectRestoredAction::class)->execute($subject);
+        $this->container()->make(SubjectRestoredAction::class)->execute($subject);
     }
 
     protected function registry(): DefinitionRegistry
     {
-        return $this->container->make(DefinitionRegistry::class);
+        return $this->container()->make(DefinitionRegistry::class);
+    }
+
+    /**
+     * The current container, never one captured at construction: Octane points the global
+     * instance at each request's sandbox, so a manager resolved at boot still resolves actions,
+     * the Gate, the rate limiter and auth from the request it serves.
+     */
+    protected function container(): Container
+    {
+        return BaseContainer::getInstance();
     }
 }
