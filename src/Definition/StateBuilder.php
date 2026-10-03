@@ -179,7 +179,7 @@ final class StateBuilder
         $columns = array_values(array_filter($columns, static fn (?string $column): bool => $column !== null));
         sort($columns);
 
-        $this->quotas[] = new QuotaRule($max, $columns, $name ?? $this->key.'|'.implode(',', $columns));
+        $this->quotas[] = new QuotaRule($max, $columns, $name ?? self::defaultQuotaName($this->key.'|'.implode(',', $columns)));
 
         return $this;
     }
@@ -252,5 +252,15 @@ final class StateBuilder
         ]);
 
         return null;
+    }
+
+    /**
+     * `"{state}|{sorted scope columns}"`, kept within the 64 characters a quota name may have:
+     * a longer one keeps its first 55 characters plus a checksum of the whole, so two long
+     * names stay distinct (and a collision would still surface as `duplicate_quota_name`).
+     */
+    private static function defaultQuotaName(string $name): string
+    {
+        return mb_strlen($name) <= 64 ? $name : mb_substr($name, 0, 55).'~'.sprintf('%08x', crc32($name));
     }
 }

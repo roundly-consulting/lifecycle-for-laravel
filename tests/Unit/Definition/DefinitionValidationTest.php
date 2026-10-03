@@ -198,3 +198,24 @@ it('translates issue messages in slovak', function (): void {
     expect(validateLifecycle(fn (LifecycleBuilder $l) => $l->states(['a']))->issues[0]->message())
         ->toBe('Nie je deklarovaný počiatočný stav.');
 });
+
+it('bounds a long default quota name instead of refusing it', function (): void {
+    $define = function (LifecycleBuilder $l): void {
+        $l->states(['draft', 'awaiting_manual_compliance_review', 'done'])->initial('draft')->terminal('done');
+        $l->state('awaiting_manual_compliance_review')
+            ->quota(5, ['organization_id', 'workspace_id', 'user_id'])
+            ->quota(5, ['organization_id', 'workspace_id', 'region_id']);
+        $l->transition('submit')->from('draft')->to('awaiting_manual_compliance_review');
+        $l->transition('finish')->from('awaiting_manual_compliance_review')->to('done');
+    };
+
+    $names = array_map(fn ($quota): string => $quota->name, compileLifecycle($define)->state('awaiting_manual_compliance_review')->quotas);
+
+    expect(validateLifecycle($define)->isValid())->toBeTrue()
+        ->and(array_map(mb_strlen(...), $names))->each->toBeLessThanOrEqual(64)
+        ->and($names[0])->not->toBe($names[1])
+        ->and($names[0])->toStartWith('awaiting_manual_compliance_review|')
+        ->and(array_map(fn ($quota): string => $quota->name, compileLifecycle($define)->state('awaiting_manual_compliance_review')->quotas))->toBe($names)
+        ->and(validateLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->quota(1, 'user_id'))->isValid())->toBeTrue()
+        ->and(compileLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->quota(1, 'user_id'))->state('b')->quotas[0]->name)->toBe('b|user_id');
+});
