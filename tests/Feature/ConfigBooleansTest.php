@@ -9,11 +9,12 @@ use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 
 /**
- * Env strings for every boolean key: `off`/`no`/`0`/`false`/`''` are false, `on`/`yes`/`1`/`true`
- * true — a bare truthiness check would read `'off'` as on.
+ * Env strings for every boolean key: `off`/`no`/`0`/`false` are false, `on`/`yes`/`1`/`true`
+ * true — a bare truthiness check would read `'off'` as on. A blank value is not set, so the
+ * key's default applies (pinned separately below, since the defaults differ per key).
  */
 dataset('booleans', [
-    ['off', false], ['no', false], ['0', false], ['false', false], ['', false],
+    ['off', false], ['no', false], ['0', false], ['false', false],
     ['on', true], ['yes', true], ['1', true], ['true', true], [true, true], [false, false],
 ]);
 
@@ -44,6 +45,21 @@ it('reads transactions.mysql_read_committed as a boolean', function (string|bool
 
     expect(Artisan::output())->toMatch('/MySQL quota isolation\W+'.($expected ? 'READ COMMITTED' : 'locking reads').'\b/');
 })->with('booleans');
+
+it('reads a blank boolean as not set, so each key keeps its default', function (string $blank): void {
+    config()->set('lifecycle.strict_writes', $blank);
+    config()->set('lifecycle.actor.from_auth', $blank);
+    config()->set('lifecycle.schedules.queue.enabled', $blank);
+    config()->set('lifecycle.transactions.mysql_read_committed', $blank);
+
+    Artisan::call('about', ['--only' => 'lifecycle']);
+    $output = Artisan::output();
+
+    expect($output)->toMatch('/Strict state writes\W+ON\b/')
+        ->and($output)->toMatch('/Actor from auth\W+ON\b/')
+        ->and($output)->toMatch('/Queued sweeps\W+OFF\b/')
+        ->and($output)->toMatch('/MySQL quota isolation\W+READ COMMITTED\b/');
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('refuses a boolean it cannot parse instead of falling back to the default', function (string $key): void {
     config()->set($key, 'disabled');

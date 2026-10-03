@@ -33,8 +33,17 @@ it('never falls back to the packaged model for a class that does not exist', fun
     expect($resolve)->toThrow(InvalidLifecycleConfigurationException::class, 'must be an existing class that extends');
 })->with([
     'state, missing class' => ['lifecycle.models.state', 'App\\Models\\GoneState', fn () => StateModel::class()],
-    'transition, empty string' => ['lifecycle.models.transition', '', fn () => TransitionModel::class()],
     'schedule, not a string' => ['lifecycle.models.schedule', 42, fn () => ScheduleModel::class()],
+]);
+
+it('reads a blank model setting as not set, so the packaged model applies', function (string $key, Closure $resolve, string $packaged): void {
+    config()->set($key, '');
+
+    expect($resolve())->toBe($packaged);
+})->with([
+    'state' => ['lifecycle.models.state', fn () => StateModel::class(), LifecycleState::class],
+    'transition' => ['lifecycle.models.transition', fn () => TransitionModel::class(), LifecycleTransition::class],
+    'schedule' => ['lifecycle.models.schedule', fn () => ScheduleModel::class(), LifecycleSchedule::class],
 ]);
 
 it('reads the packaged model when the key is absent', function (): void {

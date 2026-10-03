@@ -37,4 +37,13 @@ it('stores no payload when history.store_payload is off', function (string $valu
     Lifecycles::for(Document::factory()->create())->with(['note' => 'kept'])->apply('go');
 
     expect(storedContext())->toBeNull();
-})->with(['off', 'no', '0', 'false', '']);
+})->with(['off', 'no', '0', 'false']);
+
+it('stores the payload when history.store_payload is blank, as its default does', function (): void {
+    config()->set('lifecycle.history.store_payload', '');
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn (TransitionBuilder $go) => $go->rules(['note' => 'string'])));
+
+    Lifecycles::for(Document::factory()->create())->with(['note' => 'kept'])->apply('go');
+
+    expect(storedContext())->toBe(['note' => 'kept']);
+});

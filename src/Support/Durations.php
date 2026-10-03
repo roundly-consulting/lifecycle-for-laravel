@@ -56,20 +56,24 @@ final class Durations
         return $interval instanceof CarbonInterval ? self::normalise($interval) : null;
     }
 
-    public static function fromConfig(string $key): CarbonInterval
+    /**
+     * A configured interval; a blank value is not set, so `$default` applies.
+     */
+    public static function fromConfig(string $key, ?string $default = null): CarbonInterval
     {
         $value = config($key);
+        $value = Blank::is($value) && $default !== null ? $default : $value;
 
         return self::tryParse($value) ?? throw InvalidLifecycleConfigurationException::invalidDuration($key, $value);
     }
 
     /**
-     * A configured interval where `null` means "none" (e.g. an unlimited rollback window) — and
-     * so does an empty env value (`LIFECYCLE_ROLLBACK_DEFAULT_WINDOW=`).
+     * A configured interval where a blank value means "none" (e.g. an unlimited rollback window,
+     * `LIFECYCLE_ROLLBACK_DEFAULT_WINDOW=`).
      */
     public static function nullableFromConfig(string $key): ?CarbonInterval
     {
-        return in_array(config($key), [null, ''], true) ? null : self::fromConfig($key);
+        return Blank::is(config($key)) ? null : self::fromConfig($key);
     }
 
     public static function add(CarbonImmutable $instant, CarbonInterval $interval): CarbonImmutable

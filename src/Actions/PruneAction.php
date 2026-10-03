@@ -12,6 +12,7 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleOutcome;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Support\Blank;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
@@ -82,7 +83,7 @@ final readonly class PruneAction
      */
     public static function days(string $key): ?int
     {
-        return in_array(config($key), [null, ''], true)
+        return Blank::is(config($key))
             ? null
             : Config::using(InvalidLifecycleConfigurationException::class)->integer($key, 30, 1, 36500);
     }

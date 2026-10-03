@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use RoundlyConsulting\Lifecycle\Actions\PruneAction;
+use RoundlyConsulting\Lifecycle\Actions\RunScheduledTransitionAction;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
+use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
 
@@ -50,11 +52,23 @@ it('reads no env var beyond the documented ones', function () use ($variables): 
         ->and($matches[1])->toEqualCanonicalizing(array_column($variables, 0));
 });
 
-it('reads an empty value of a nullable key as unset', function (string $key): void {
-    config()->set($key, '');
+it('reads a blank value of a nullable key as unset', function (string $key, string $blank): void {
+    config()->set($key, $blank);
 
     expect(PruneAction::days($key))->toBeNull();
-})->with(['lifecycle.history.prune_after_days', 'lifecycle.schedules.prune_after_days']);
+})->with(['lifecycle.history.prune_after_days', 'lifecycle.schedules.prune_after_days'])->with(['empty' => '', 'whitespace' => '  ']);
+
+it('reads a blank rollback window as unlimited', function (string $blank): void {
+    config()->set('lifecycle.rollback.default_window', $blank);
+
+    expect(Durations::nullableFromConfig('lifecycle.rollback.default_window'))->toBeNull();
+})->with(['empty' => '', 'whitespace' => '  ']);
+
+it('reads a blank retry interval as not set, so its default applies', function (string $blank): void {
+    config()->set('lifecycle.schedules.retry_after', $blank);
+
+    expect(Durations::describe(RunScheduledTransitionAction::retryAfter()))->toBe('5 minutes');
+})->with(['empty' => '', 'whitespace' => '  ']);
 
 it('reads an empty rollback window as unlimited and keeps rolling back', function (): void {
     config()->set('lifecycle.rollback.default_window', '');
@@ -74,6 +88,12 @@ it('prunes nothing when the retention keys are empty', function (): void {
         ->and(Artisan::output())->toContain('Nothing to prune');
 });
 
+it('reads a blank integer setting as not set, so its default applies', function (string $blank): void {
+    config()->set('lifecycle.transactions.attempts', $blank);
+
+    expect(Transactions::attempts())->toBe(3);
+})->with(['empty' => '', 'whitespace' => '  ']);
+
 it('refuses an integer setting that is not a canonical integer', function (string $key, mixed $value): void {
     config()->set($key, $value);
 
@@ -86,7 +106,6 @@ it('refuses an integer setting that is not a canonical integer', function (strin
     'an explicit plus' => ['lifecycle.transactions.attempts', '+5'],
     'an exponent' => ['lifecycle.transactions.attempts', '1e3'],
     'a bool' => ['lifecycle.transactions.attempts', true],
-    'empty, not nullable' => ['lifecycle.transactions.attempts', ''],
     'a decimal retention' => ['lifecycle.history.prune_after_days', '30.5'],
 ]);
 

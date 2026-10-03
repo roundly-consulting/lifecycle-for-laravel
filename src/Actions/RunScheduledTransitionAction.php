@@ -282,6 +282,6 @@ final readonly class RunScheduledTransitionAction
 
     public static function retryAfter(): CarbonInterval
     {
-        return Durations::fromConfig('lifecycle.schedules.retry_after');
+        return Durations::fromConfig('lifecycle.schedules.retry_after', '5 minutes');
     }
 }
