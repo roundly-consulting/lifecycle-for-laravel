@@ -51,7 +51,9 @@ use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectTrashedException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
+use RoundlyConsulting\Lifecycle\LifecycleHandle;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
+use RoundlyConsulting\Lifecycle\ModelLifecycle;
 use RoundlyConsulting\Lifecycle\Support\ActorResolver;
 use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
@@ -630,7 +632,7 @@ final class LifecycleFake extends LifecycleManager
 
     public function adopt(Model $subject, ?string $lifecycle = null): bool
     {
-        $this->calls[] = new RecordedCall('adopt', $subject, false);
+        $this->calls[] = new RecordedCall('adopt', $this->for($subject, $lifecycle), false);
 
         return false;
     }
@@ -671,12 +673,14 @@ final class LifecycleFake extends LifecycleManager
     }
 
     /**
+     * `$lifecycle` (null = any) tells apart lifecycles of one model that share transition names.
+     *
      * @param  (Closure(TransitionResult): bool)|null  $callback
      */
-    public function assertTransitioned(Model $subject, ?string $transition = null, ?Closure $callback = null): void
+    public function assertTransitioned(Model $subject, ?string $transition = null, ?Closure $callback = null, ?string $lifecycle = null): void
     {
         PHPUnit::assertNotEmpty(
-            $this->transitions($subject, $transition, $callback),
+            $this->transitions($subject, $transition, $callback, $lifecycle),
             sprintf('Expected [%s] to be transitioned%s, but it was not.', $subject::class, $transition === null ? '' : " via [{$transition}]"),
         );
     }
@@ -684,7 +688,7 @@ final class LifecycleFake extends LifecycleManager
     public function assertTransitionedTo(Model $subject, BackedEnum|string|int $state, ?string $lifecycle = null): void
     {
         $matching = array_filter(
-            $this->transitions($subject, null, null),
+            $this->transitions($subject, null, null, null),
             function (TransitionResult $result) use ($state, $lifecycle): bool {
                 if ($lifecycle !== null && $result->lifecycle !== $lifecycle) {
                     return false;
@@ -699,10 +703,10 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertNotEmpty($matching, sprintf('Expected [%s] to be transitioned to the given state, but it was not.', $subject::class));
     }
 
-    public function assertNotTransitioned(Model $subject, ?string $transition = null): void
+    public function assertNotTransitioned(Model $subject, ?string $transition = null, ?string $lifecycle = null): void
     {
         PHPUnit::assertEmpty(
-            $this->transitions($subject, $transition, null),
+            $this->transitions($subject, $transition, null, $lifecycle),
             sprintf('Expected [%s] not to be transitioned%s, but it was.', $subject::class, $transition === null ? '' : " via [{$transition}]"),
         );
     }
@@ -714,12 +718,13 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be transitioned, but %d transition(s) were applied.', $count));
     }
 
-    public function assertTransitionDenied(Model $subject, ?string $transition = null, DenialCode|string|null $code = null): void
+    public function assertTransitionDenied(Model $subject, ?string $transition = null, DenialCode|string|null $code = null, ?string $lifecycle = null): void
     {
-        $matching = array_filter($this->calls, static function (RecordedCall $call) use ($subject, $transition, $code): bool {
+        $matching = array_filter($this->calls, static function (RecordedCall $call) use ($subject, $transition, $code, $lifecycle): bool {
             return $call->denied !== null
                 && $call->request instanceof TransitionRequest
                 && $call->request->subject->is($subject)
+                && ($lifecycle === null || $call->request->lifecycle === $lifecycle)
                 && ($transition === null || $call->request->transition === $transition)
                 && ($code === null || $call->denied->has($code));
         });
@@ -753,10 +758,11 @@ final class LifecycleFake extends LifecycleManager
     /**
      * @param  (Closure(RollbackResult): bool)|null  $callback
      */
-    public function assertRolledBack(Model $subject, ?Closure $callback = null): void
+    public function assertRolledBack(Model $subject, ?Closure $callback = null, ?string $lifecycle = null): void
     {
         $matching = array_filter($this->calls, static fn (RecordedCall $call): bool => $call->result instanceof RollbackResult
             && $call->result->subject->is($subject)
+            && ($lifecycle === null || $call->result->lifecycle === $lifecycle)
             && ($callback === null || $callback($call->result)));
 
         PHPUnit::assertNotEmpty($matching, sprintf('Expected [%s] to be rolled back, but it was not.', $subject::class));
@@ -785,10 +791,10 @@ final class LifecycleFake extends LifecycleManager
         );
     }
 
-    public function assertScheduled(Model $subject, string $transition, ?CarbonInterface $at = null): void
+    public function assertScheduled(Model $subject, string $transition, ?CarbonInterface $at = null, ?string $lifecycle = null): void
     {
         $matching = array_filter(
-            $this->requests('schedule', $subject, null),
+            $this->requests('schedule', $subject, $lifecycle),
             static fn (object $request): bool => $request instanceof ScheduleRequest && $request->transition === $transition
                 && ($at === null || Clock::utc($request->at)->equalTo(Clock::utc($at))),
         );
@@ -803,10 +809,10 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be scheduled, but %d schedule(s) were recorded.', $count));
     }
 
-    public function assertExpiryChanged(Model $subject, ?ExpiryChange $change = null): void
+    public function assertExpiryChanged(Model $subject, ?ExpiryChange $change = null, ?string $lifecycle = null): void
     {
         $matching = array_filter(
-            $this->requests('changeExpiry', $subject, null),
+            $this->requests('changeExpiry', $subject, $lifecycle),
             static fn (object $request): bool => $request instanceof ExpiryChangeRequest && ($change === null || $request->change === $change),
         );
 
@@ -836,11 +842,14 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertSame(0, $count, sprintf('Expected no lifecycle sweep, but %d ran.', $count));
     }
 
-    public function assertAdopted(?Model $subject = null): void
+    public function assertAdopted(?Model $subject = null, ?string $lifecycle = null): void
     {
-        $matching = array_filter($this->calls, static function (RecordedCall $call) use ($subject): bool {
+        $matching = array_filter($this->calls, static function (RecordedCall $call) use ($subject, $lifecycle): bool {
+            $request = $call->request;
+
             return in_array($call->method, ['adopt', 'adoptAll'], true)
-                && ($subject === null || ($call->request instanceof Model && $call->request->is($subject)));
+                && ($subject === null || ($request instanceof LifecycleHandle && $request->subject->is($subject)))
+                && ($lifecycle === null || (($request instanceof LifecycleHandle || $request instanceof ModelLifecycle) && $request->lifecycle === $lifecycle));
         });
 
         PHPUnit::assertNotEmpty($matching, 'Expected a lifecycle adoption, but none was recorded.');
@@ -853,10 +862,10 @@ final class LifecycleFake extends LifecycleManager
         PHPUnit::assertSame(0, $count, sprintf('Expected nothing to be unfrozen, but %d unfreeze(s) were recorded.', $count));
     }
 
-    public function assertScheduleCancelled(Model $subject, ?string $transition = null): void
+    public function assertScheduleCancelled(Model $subject, ?string $transition = null, ?string $lifecycle = null): void
     {
         $matching = array_filter(
-            $this->requests('cancelScheduled', $subject, null),
+            $this->requests('cancelScheduled', $subject, $lifecycle),
             static fn (object $request): bool => $request instanceof CancelScheduleRequest && ($transition === null || $request->transition === $transition),
         );
 
@@ -1000,7 +1009,7 @@ final class LifecycleFake extends LifecycleManager
      * @param  (Closure(TransitionResult): bool)|null  $callback
      * @return list<TransitionResult>
      */
-    private function transitions(Model $subject, ?string $transition, ?Closure $callback): array
+    private function transitions(Model $subject, ?string $transition, ?Closure $callback, ?string $lifecycle): array
     {
         $results = [];
 
@@ -1008,6 +1017,7 @@ final class LifecycleFake extends LifecycleManager
             $result = $call->result;
 
             if ($result instanceof TransitionResult && $result->subject->is($subject)
+                && ($lifecycle === null || $result->lifecycle === $lifecycle)
                 && ($transition === null || $result->transition === $transition)
                 && ($callback === null || $callback($result))) {
                 $results[] = $result;

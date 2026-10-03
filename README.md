@@ -1105,16 +1105,17 @@ fake still starts in its initial state, and a direct write still throws. Handle 
 database (`enteredAt()`, `isFrozen()`, `expiresAt()`, `history()`, `scheduled()`) see no faked
 changes, so use the assertions:
 
-`assertTransitioned($subject, ?$transition, ?$callback)`, `assertTransitionedTo($subject, $state, ?$lifecycle)`,
-`assertNotTransitioned()`, `assertNothingTransitioned()`, `assertTransitionDenied($subject, ?$transition, ?$code)`,
-`assertRolledBack()`, `assertNothingRolledBack()`, `assertFrozen()`, `assertUnfrozen()`,
-`assertNothingFrozen()`, `assertNothingUnfrozen()`, `assertScheduled($subject, $transition, ?$at)`,
-`assertNothingScheduled()` (both count accepted schedules only), `assertScheduleCancelled($subject, ?$transition)`, `assertNothingCancelled()`,
-`assertExpiryChanged($subject, ?ExpiryChange)`, `assertNoExpiryChanged()`, `assertAdopted()`,
+`assertTransitioned($subject, ?$transition, ?$callback, ?$lifecycle)`, `assertTransitionedTo($subject, $state, ?$lifecycle)`,
+`assertNotTransitioned($subject, ?$transition, ?$lifecycle)`, `assertNothingTransitioned()`, `assertTransitionDenied($subject, ?$transition, ?$code, ?$lifecycle)`,
+`assertRolledBack($subject, ?$callback, ?$lifecycle)`, `assertNothingRolledBack()`, `assertFrozen()`, `assertUnfrozen()`,
+`assertNothingFrozen()`, `assertNothingUnfrozen()`, `assertScheduled($subject, $transition, ?$at, ?$lifecycle)`,
+`assertNothingScheduled()` (both count accepted schedules only), `assertScheduleCancelled($subject, ?$transition, ?$lifecycle)`, `assertNothingCancelled()`,
+`assertExpiryChanged($subject, ?ExpiryChange, ?$lifecycle)`, `assertNoExpiryChanged()`, `assertAdopted(?$subject, ?$lifecycle)`,
 `assertNothingAdopted()`, `assertSwept(?$times)`, `assertNotSwept()`, `assertWarned(?$times)`,
 `assertNotWarned()`, `assertScheduleRetried(?$scheduleId)`, `assertNothingRetried()`, `assertPruned()`,
-`assertNotPruned()` and `recorded()`. `deny($transition, $code)` refuses every time; `denyNext()`
-once.
+`assertNotPruned()` and `recorded()`. On a model with several lifecycles that share transition
+names, name the one you mean: `Lifecycles::assertTransitioned($order, 'cancel', lifecycle: 'payment_status')`.
+`deny($transition, $code)` refuses every time; `denyNext()` once.
 
 For integration tests against the real engine, use your factories (a declared non-initial state is
 accepted on creation) and `Carbon::setTestNow()` with `Lifecycles::sweep()` to travel through

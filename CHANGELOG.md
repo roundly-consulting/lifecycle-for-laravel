@@ -56,6 +56,8 @@ Initial public release.
   `Lifecycles::fake()` — it mirrors the real structural checks, freezes, schedules and expiry
   instants in memory — and assertions for transitions, denials, rollbacks, freezes and unfreezes,
   schedules and cancellations, expiry changes, sweeps, warnings, retries, adoption and pruning.
+  Every assertion about a subject can name the lifecycle (`lifecycle: 'payment_status'`), for
+  models whose lifecycles share transition names.
 - Events: `LifecycleTransitioning`, `LifecycleTransitioned`, `LifecycleTransitionDenied`,
   `LifecycleExpiring`, `LifecycleExpired`, `LifecycleRolledBack`, `LifecycleFrozen`,
   `LifecycleUnfrozen`, `LifecycleAdopted` and `ScheduledTransitionFailed`.

@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-use RoundlyConsulting\Lifecycle\Concerns\HasLifecycle;
-use RoundlyConsulting\Lifecycle\Contracts\LifecycleSubject;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionContext;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\TransitionBuilder;
@@ -18,29 +13,14 @@ use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Facades\Lifecycles;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
-use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\InlineLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\Document;
+use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\DualDocument;
 
 /**
  * The engine silences the model hooks only for the lifecycle it is writing: inside a handler,
  * hook or observer every other model — and every other lifecycle of the same model — keeps
  * strict writes, the declared-state check, adoption and the expiry-attribute sync.
- */
-final class DualDocument extends Model implements LifecycleSubject
-{
-    use HasLifecycle;
-
-    protected $table = 'dual_documents';
-
-    protected $guarded = [];
-
-    public function lifecycleDefinitions(): array
-    {
-        return ['status' => InlineLifecycle::class, 'review_status' => InlineLifecycle::class];
-    }
-}
-
-/**
+ *
  * @param  Closure(TransitionContext): void  $handler
  */
 function handledGo(Closure $handler): void
@@ -105,12 +85,6 @@ it('refuses a handler that changes the state it is transitioning', function (boo
 })->with(['strict' => true, 'not strict' => false]);
 
 it('keeps strict writes for another lifecycle of the same subject inside a handler', function (): void {
-    Schema::create('dual_documents', function (Blueprint $table): void {
-        $table->id();
-        $table->string('status', 64)->nullable();
-        $table->string('review_status', 64)->nullable();
-        $table->timestamps();
-    });
     defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l, go: fn (TransitionBuilder $go) => $go
         ->handledBy(function (TransitionContext $c): void {
             if ($c->lifecycle === 'status') {

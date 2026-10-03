@@ -70,5 +70,12 @@ return new class extends Migration
             $table->id();
             $table->string('status', 64)->nullable();
         });
+
+        Schema::create('dual_documents', function (Blueprint $table): void {
+            $table->id();
+            $table->string('status', 64)->nullable();
+            $table->string('review_status', 64)->nullable();
+            $table->timestamps();
+        });
     }
 };
