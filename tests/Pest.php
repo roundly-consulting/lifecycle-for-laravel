@@ -9,6 +9,7 @@ use RoundlyConsulting\Lifecycle\Definition\DefinitionValidator;
 use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
 use RoundlyConsulting\Lifecycle\Definition\ValidationReport;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\InlineLifecycle;
+use RoundlyConsulting\Lifecycle\Tests\Support\GeneratorSandboxTestCase;
 use RoundlyConsulting\Lifecycle\Tests\Support\SwappedModelsTestCase;
 use RoundlyConsulting\Lifecycle\Tests\Support\UuidKeysTestCase;
 use RoundlyConsulting\Lifecycle\Tests\TestCase;
@@ -18,6 +19,10 @@ uses(TestCase::class)->in('Unit', 'Feature', 'RealEngine', 'Property', 'ArchTest
 // Model-swap and uuid-key proofs need their config applied BEFORE boot: own base cases.
 uses(SwappedModelsTestCase::class)->in('ModelSwap');
 uses(UuidKeysTestCase::class)->in('UuidKeys');
+
+// make:lifecycle and the stub publish write into app/ and base_path('stubs'): a per-test
+// mirror of the skeleton, never the one every parallel process boots from.
+uses(GeneratorSandboxTestCase::class)->in('Generate');
 
 /**
  * A minimal valid lifecycle: a → b → c (terminal). Tests add the one thing they examine.

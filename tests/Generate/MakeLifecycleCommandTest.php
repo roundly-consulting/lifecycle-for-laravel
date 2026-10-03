@@ -4,24 +4,17 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
+use RoundlyConsulting\Lifecycle\LifecycleServiceProvider;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Enums\EmptyStatus;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Enums\ListingStatus;
+use RoundlyConsulting\Lifecycle\Tests\Support\GeneratorSandboxTestCase;
 
 enum MakeLifecyclePureStatus
 {
     case Draft;
 }
-
-beforeEach(function (): void {
-    File::deleteDirectory(app_path('Lifecycles'));
-    File::deleteDirectory(base_path('stubs'));
-});
-
-afterEach(function (): void {
-    File::deleteDirectory(app_path('Lifecycles'));
-    File::deleteDirectory(base_path('stubs'));
-});
 
 /**
  * @return array{0: int, 1: string}
@@ -32,6 +25,19 @@ function makeLifecycle(array $parameters): array
 
     return [$code, Artisan::output()];
 }
+
+/**
+ * Generated classes and published stubs land in a per-test mirror of the skeleton
+ * ({@see GeneratorSandboxTestCase}), never the testbench skeleton the parallel suite boots from.
+ */
+it('generates and publishes into the sandbox, never the shared skeleton', function (): void {
+    expect(app_path('Lifecycles'))->toContain('lifecycle-generate-')
+        ->and(base_path('stubs'))->toContain('lifecycle-generate-')
+        ->and(array_values(ServiceProvider::pathsToPublish(LifecycleServiceProvider::class, 'lifecycle-stubs')))->toBe([
+            base_path('stubs/lifecycle.stub'),
+            base_path('stubs/lifecycle.enum.stub'),
+        ]);
+});
 
 it('generates a valid example definition', function (): void {
     [$code, $output] = makeLifecycle(['name' => 'GeneratedExampleLifecycle']);
