@@ -21,44 +21,6 @@
             "role": "Developer"
         }
     ],
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../package-toolkit-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/package-toolkit-for-laravel",
-            "no-api": true
-        },
-        {
-            "type": "path",
-            "url": "../enums-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/enums-for-laravel",
-            "no-api": true
-        },
-        {
-            "type": "path",
-            "url": "../testing-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/testing-for-laravel",
-            "no-api": true
-        }
-    ],
     "require": {
         "php": "^8.4",
         "illuminate/bus": "^12.0|^13.0",
@@ -73,8 +35,8 @@
         "illuminate/queue": "^12.0|^13.0",
         "illuminate/support": "^12.0|^13.0",
         "illuminate/validation": "^12.0|^13.0",
-        "roundly-consulting/enums-for-laravel": "@dev",
-        "roundly-consulting/package-toolkit-for-laravel": "@dev"
+        "roundly-consulting/enums-for-laravel": "^1.0",
+        "roundly-consulting/package-toolkit-for-laravel": "^1.0"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -85,7 +47,7 @@
         "pestphp/pest-plugin-arch": "^4.0",
         "pestphp/pest-plugin-laravel": "^4.0",
         "phpstan/extension-installer": "^1.4",
-        "roundly-consulting/testing-for-laravel": "@dev"
+        "roundly-consulting/testing-for-laravel": "^1.0"
     },
     "autoload": {
         "psr-4": {
@@ -121,7 +83,5 @@
                 "Lifecycles": "RoundlyConsulting\\Lifecycle\\Facades\\Lifecycles"
             }
         }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+    }
 }
