@@ -8,6 +8,7 @@ use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
 use RoundlyConsulting\Lifecycle\Actions\PruneAction;
 use RoundlyConsulting\Lifecycle\Commands\AdoptCommand;
 use RoundlyConsulting\Lifecycle\Commands\GraphCommand;
+use RoundlyConsulting\Lifecycle\Commands\MakeLifecycleCommand;
 use RoundlyConsulting\Lifecycle\Commands\PruneCommand;
 use RoundlyConsulting\Lifecycle\Commands\ShowCommand;
 use RoundlyConsulting\Lifecycle\Commands\SweepCommand;
@@ -48,7 +49,12 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 ShowCommand::class,
                 AdoptCommand::class,
                 PruneCommand::class,
+                MakeLifecycleCommand::class,
             ])
+            // `php artisan vendor:publish --tag=lifecycle-stubs`: make:lifecycle then uses the
+            // host's copies from base_path('stubs').
+            ->publishesStubs(__DIR__.'/Commands/stubs/lifecycle.stub', $this->app->basePath('stubs/lifecycle.stub'), 'lifecycle-stubs')
+            ->publishesStubs(__DIR__.'/Commands/stubs/lifecycle.enum.stub', $this->app->basePath('stubs/lifecycle.enum.stub'), 'lifecycle-stubs')
             // Presence and flags only — never a payload or a secret.
             ->contributesToAbout(static fn (): array => [
                 'Graph format' => GraphExporter::defaultFormat()->value,

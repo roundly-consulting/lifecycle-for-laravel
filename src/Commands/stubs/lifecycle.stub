@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Definition\LifecycleDefinition;
+
+final class {{ class }} extends LifecycleDefinition
+{
+    public function define(LifecycleBuilder $lifecycle): void
+    {
+        $lifecycle->states(['draft', 'active', 'archived'])
+            ->initial('draft')
+            ->terminal('archived');
+
+        $lifecycle->transition('publish')
+            ->from('draft')->to('active');
+
+        $lifecycle->transition('archive')
+            ->from('*')->to('archived');
+    }
+}

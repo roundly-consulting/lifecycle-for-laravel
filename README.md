@@ -40,7 +40,7 @@ race-free quotas, expiry and scheduled transitions, rollbacks and an append-only
   lock order, after-commit events and idempotency keys, tested with forked processes on PostgreSQL
   and MySQL.
 - **Developer experience** — `Lifecycles::for($model)` handles, a `HasLifecycle` trait, query scopes, a
-  cast, validation rules, API resources, Mermaid/DOT graphs, six Artisan commands and a real
+  cast, validation rules, API resources, Mermaid/DOT graphs, seven Artisan commands and a real
   `Lifecycles::fake()`.
 
 ## Contents
@@ -972,6 +972,7 @@ the fake fire nothing.
 
 | Command | What it does |
 |---|---|
+| `make:lifecycle {name} {--enum=} {--force}` | Generates a definition class in `App\Lifecycles`: a small valid example, or the cases of a backed enum as states (starting in the first case). `vendor:publish --tag=lifecycle-stubs` lets you edit the stubs. |
 | `lifecycle:sweep {--limit=} {--queue} {--no-warnings}` | Sends due warnings and runs due expiries and scheduled transitions. Isolatable. |
 | `lifecycle:graph {definition} {--format=mermaid\|dot} {--output=}` | Prints or writes a graph. `definition` is a definition class or `Model:attribute` (class name or morph alias). |
 | `lifecycle:validate {definition?*} {--strict}` | Lists every error and warning; for `Model:attribute` also checks that the named columns exist. Without arguments: every lifecycle of every model in `lifecycle.subjects`. Exit 1 on errors (or, with `--strict`, on warnings or when there is nothing to validate). |

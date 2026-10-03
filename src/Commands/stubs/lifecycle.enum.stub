@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use {{ enum }};
+use RoundlyConsulting\Lifecycle\Definition\LifecycleBuilder;
+use RoundlyConsulting\Lifecycle\Definition\LifecycleDefinition;
+
+final class {{ class }} extends LifecycleDefinition
+{
+    public function define(LifecycleBuilder $lifecycle): void
+    {
+        $lifecycle->states({{ enumBasename }}::class)
+            ->initial({{ enumBasename }}::{{ initialCase }});
+
+        // Declare the moves between the states, for example:
+        //
+        // $lifecycle->transition('publish')
+        //     ->from({{ enumBasename }}::{{ initialCase }})->to({{ enumBasename }}::...);
+    }
+}

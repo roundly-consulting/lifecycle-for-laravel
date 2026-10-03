@@ -46,7 +46,8 @@ Initial public release.
   `whereExpiringWithin`, `whereInGrace`, `whereFrozen`, `whereInStateFor` and `withLifecycle`.
 - `LifecycleResource` and `TransitionRecordResource`, the `ValidTransition` and `ValidState` rules
   and the `AsLifecycleState` cast.
-- Mermaid and DOT graphs (`lifecycle:graph`) and `lifecycle:show`.
+- A `make:lifecycle` generator (string states or `--enum`, publishable stubs), Mermaid and DOT
+  graphs (`lifecycle:graph`) and `lifecycle:show`.
 - The `Lifecycles` facade over an injectable `LifecycleManager` and public action classes, with
   `Lifecycles::fake()` — it mirrors the real structural checks, freezes, schedules and expiry
   instants in memory — and assertions for transitions, denials, rollbacks, freezes and unfreezes,
