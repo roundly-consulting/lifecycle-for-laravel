@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /**
  * Env strings for every boolean key: `off`/`no`/`0`/`false`/`''` are false, `on`/`yes`/`1`/`true`
@@ -40,3 +41,9 @@ it('reads transactions.mysql_read_committed as a boolean', function (string|bool
 
     expect(Artisan::output())->toMatch('/MySQL quota isolation\W+'.($expected ? 'READ COMMITTED' : 'locking reads').'\b/');
 })->with('booleans');
+
+it('refuses a boolean it cannot parse instead of falling back to the default', function (string $key): void {
+    config()->set($key, 'disabled');
+
+    expect(fn () => Artisan::call('about', ['--only' => 'lifecycle']))->toThrow(InvalidConfigurationException::class, 'disabled');
+})->with(['lifecycle.strict_writes', 'lifecycle.actor.from_auth', 'lifecycle.schedules.queue.enabled', 'lifecycle.transactions.mysql_read_committed']);

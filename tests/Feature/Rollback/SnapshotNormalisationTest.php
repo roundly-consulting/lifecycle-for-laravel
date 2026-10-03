@@ -21,15 +21,20 @@ it('restores every column type without a false conflict', function (string $colu
     });
     $document = Document::factory()->create([$column => $initial]);
     $before = $document->fresh()?->getRawOriginal($column);
+    // Drivers render a decimal as '10.00', '10.0' or '10': compare its cast value as a float.
+    $cast = static fn (mixed $value): mixed => $column === 'price' && $value !== null ? (float) $value : $value;
+    $raw = static fn (mixed $value): mixed => json_decode((string) json_encode($value), true);
 
     $document->transition('change');
 
-    expect(Lifecycles::for($document)->canRollback()->allowed)->toBeTrue();
+    expect($cast($document->fresh()?->getAttribute($column)))->not->toEqual($cast($initial))
+        ->and(Lifecycles::for($document)->canRollback()->allowed)->toBeTrue();
 
     Lifecycles::for($document)->rollback();
+    $after = $document->fresh();
 
-    expect(json_encode($document->fresh()?->getAttribute($column)))->toBe(json_encode(Document::query()->find($document->id)?->getAttribute($column)))
-        ->and($document->fresh()?->getRawOriginal($column) == $before)->toBeTrue();
+    expect($cast($after?->getAttribute($column)))->toEqual($cast($initial))
+        ->and($raw($after?->getRawOriginal($column)))->toBe($raw($before));
 })->with([
     'int' => ['quantity', 3, 7],
     'decimal' => ['price', '10.00', '12.50'],
