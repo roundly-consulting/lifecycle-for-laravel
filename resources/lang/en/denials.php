@@ -33,4 +33,5 @@ return [
     'not_reversible' => 'This change cannot be undone.',
     'rollback_window_passed' => 'The time to undo ":transition" has passed.',
     'rollback_conflict' => 'The record was changed after ":transition", so it cannot be undone safely.',
+    'subject_trashed' => 'This record is deleted.',
 ];

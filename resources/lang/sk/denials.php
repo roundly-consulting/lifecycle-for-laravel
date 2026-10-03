@@ -33,4 +33,5 @@ return [
     'not_reversible' => 'Túto zmenu nie je možné vrátiť späť.',
     'rollback_window_passed' => 'Čas na vrátenie prechodu „:transition“ uplynul.',
     'rollback_conflict' => 'Záznam sa po prechode „:transition“ zmenil, preto ho nie je možné bezpečne vrátiť.',
+    'subject_trashed' => 'Tento záznam je odstránený.',
 ];

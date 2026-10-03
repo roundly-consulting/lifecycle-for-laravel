@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransition;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\AvailableTransitionsQuery;
+use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\ContextFactory;
@@ -15,6 +16,7 @@ use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Support\ActorResolver;
+use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 
 /**
  * The transitions leaving the current state, checked for the given actor — what a UI shows
@@ -54,11 +56,13 @@ final readonly class ListAvailableTransitionsAction
         $actor = $this->actors->resolve($query->actor, $query->system);
         $available = [];
 
+        $trashed = SoftDeletion::isTrashed($subject);
+
         foreach ($definition->transitionsFrom($current) as $transition) {
             $request = new TransitionRequest($subject, $query->lifecycle, transition: $transition->name, actor: $query->actor, system: $query->system);
-            $decision = $this->pipeline->evaluate(
-                $this->contexts->evaluation($definition, $request, $transition, $current, Mode::Check, $record, $actor),
-            );
+            $decision = $trashed
+                ? Decision::deny(GuardPipeline::trashed($definition, $current, $transition->name))
+                : $this->pipeline->evaluate($this->contexts->evaluation($definition, $request, $transition, $current, Mode::Check, $record, $actor));
 
             if ($decision->denied() && ! $query->includeDenied) {
                 continue;

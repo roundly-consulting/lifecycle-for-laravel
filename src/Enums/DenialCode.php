@@ -44,6 +44,7 @@ enum DenialCode: string
     case NotReversible = 'not_reversible';
     case RollbackWindowPassed = 'rollback_window_passed';
     case RollbackConflict = 'rollback_conflict';
+    case SubjectTrashed = 'subject_trashed';
 
     /**
      * A retryable denial may clear on its own (time passes, a slot frees up); a scheduled
@@ -71,6 +72,7 @@ enum DenialCode: string
             self::NoTransitionToState,
             self::TerminalState,
             self::NotFromCurrentState,
+            self::SubjectTrashed,
         ], true);
     }
 }

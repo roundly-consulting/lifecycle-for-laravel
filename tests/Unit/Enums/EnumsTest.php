@@ -19,7 +19,7 @@ it('freezes the denial codes', function (): void {
         'deadline_passed', 'not_yet_available', 'min_dwell_not_reached', 'cooldown_active',
         'max_occurrences_reached', 'guard_failed', 'quota_exceeded', 'rate_limited',
         'nothing_to_rollback', 'not_on_path', 'state_mismatch', 'irreversible', 'not_reversible',
-        'rollback_window_passed', 'rollback_conflict',
+        'rollback_window_passed', 'rollback_conflict', 'subject_trashed',
     ]);
 });
 
@@ -36,6 +36,7 @@ it('classifies denial codes', function (): void {
         DenialCode::GuardFailed, DenialCode::QuotaExceeded, DenialCode::RateLimited,
     ])->and($structural)->toBe([
         DenialCode::UnknownTransition, DenialCode::NoTransitionToState, DenialCode::TerminalState, DenialCode::NotFromCurrentState,
+        DenialCode::SubjectTrashed,
     ]);
 });
 

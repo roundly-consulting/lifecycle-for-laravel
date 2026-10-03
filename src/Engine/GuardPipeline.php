@@ -91,6 +91,20 @@ final readonly class GuardPipeline
     }
 
     /**
+     * The structural refusal of a soft-deleted subject in the check paths — `apply()` and
+     * `rollback()` throw SubjectTrashedException under the lock instead.
+     */
+    public static function trashed(CompiledDefinition $definition, ?string $current, ?string $transition): Denial
+    {
+        $label = $transition === null ? '' : ($definition->transition($transition)?->label() ?? $transition);
+
+        return Denial::of(DenialCode::SubjectTrashed, [
+            'transition' => $label,
+            'state' => $current === null ? '' : $definition->stateLabel($current),
+        ], source: 'structure');
+    }
+
+    /**
      * Rows 4–18, collected; row 19 (rate limits) only when everything else passed — `check()`
      * peeks at it, `apply()` consumes it afterwards ({@see self::consumeRateLimits()}).
      */

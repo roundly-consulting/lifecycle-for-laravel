@@ -15,10 +15,12 @@ use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Exceptions\SubjectNotPersistedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Support\ActorResolver;
+use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 
 /**
  * Whether a transition would be allowed right now — the same pipeline as `apply()`, without
- * locks or side effects. Advisory: `apply()` checks again under the lock.
+ * locks or side effects. Advisory: `apply()` checks again under the lock. A soft-deleted subject
+ * is refused `subject_trashed` (where `apply()` throws SubjectTrashedException).
  */
 final readonly class CheckTransitionAction
 {
@@ -46,6 +48,11 @@ final readonly class CheckTransitionAction
         }
 
         $current = $definition->key($raw);
+
+        if (SoftDeletion::isTrashed($subject)) {
+            return Decision::deny(GuardPipeline::trashed($definition, $current, $request->transition));
+        }
+
         $transition = $this->pipeline->resolve($definition, $request->transition, $request->target, $current);
 
         if ($transition instanceof Denial) {

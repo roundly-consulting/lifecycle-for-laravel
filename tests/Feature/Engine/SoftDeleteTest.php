@@ -74,3 +74,19 @@ it('resumes the schedules of a subject restored without model events at the next
     'query builder' => fn (Listing $listing) => Listing::onlyTrashed()->whereKey($listing->id)->restore(),
     'restoreQuietly' => fn (Listing $listing) => $listing->restoreQuietly(),
 ]);
+
+it('answers the checks of a soft-deleted subject with subject_trashed, as apply() refuses it', function (): void {
+    $listing = Listing::factory()->create();
+    $listing->transition('publish');
+    $listing->delete();
+
+    $available = Lifecycles::for($listing)->allowedTransitions(includeDenied: true);
+
+    expect(Lifecycles::for($listing)->check('close')->codes())->toBe(['subject_trashed'])
+        ->and(Lifecycles::for($listing)->can('close'))->toBeFalse()
+        ->and(Lifecycles::for($listing)->allowedTransitions())->toBe([])
+        ->and(array_map(fn ($transition): array => $transition->denials[0]->code === 'subject_trashed' ? [$transition->name] : [], $available))
+        ->toBe([['close'], ['expire'], ['archive']])
+        ->and(Lifecycles::for($listing)->canRollback()->codes())->toBe(['subject_trashed'])
+        ->and(fn () => Lifecycles::for($listing)->attempt('close'))->toThrow(SubjectTrashedException::class);
+});

@@ -556,7 +556,8 @@ and `source`. Codes are the `DenialCode` enum values (`frozen`, `quota_exceeded`
 or your guard's own codes.
 
 `check()` runs the same pipeline as `apply()`, but it is advisory: `apply()` checks again under the
-row lock. Without a reason or payload, `check()`, `can()` and `allowedTransitions()` report
+row lock. A soft-deleted subject is refused `subject_trashed` by the checks; `apply()` and
+`rollback()` throw `SubjectTrashedException` for it. Without a reason or payload, `check()`, `can()` and `allowedTransitions()` report
 "requires a reason" through `requiresReason` / `payloadFields` instead of as a denial, so a button for
 a transition that needs a reason is not shown as disabled.
 
