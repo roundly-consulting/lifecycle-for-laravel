@@ -12,7 +12,7 @@
         "expiry",
         "audit-trail"
     ],
-    "homepage": "https://github.com/roundly-consulting/lifecycle-for-laravel",
+    "homepage": "https://roundly-consulting.com/open-source/docs/lifecycle-for-laravel",
     "license": "MIT",
     "authors": [
         {
@@ -21,6 +21,9 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "docs": "https://roundly-consulting.com/open-source/docs/lifecycle-for-laravel"
+    },
     "require": {
         "php": "^8.4",
         "illuminate/bus": "^12.0|^13.0",
