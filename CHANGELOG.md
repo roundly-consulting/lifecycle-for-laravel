@@ -6,8 +6,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-05
+
 ### Changed
 
+- Documentation: the README hero image uses an absolute URL, so it renders on Packagist and other
+  sites.
+- Maintenance: `composer.json` `homepage` and `support.docs` link to the package documentation.
 - Documentation: the `LifecycleFake` docblock no longer claims the fake computes the real expiry
   instant; it names where `extend()` and `neverExpire()` differ from the real engine.
 
