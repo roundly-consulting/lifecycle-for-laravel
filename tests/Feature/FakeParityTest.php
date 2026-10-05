@@ -309,6 +309,37 @@ dataset('structural scenarios', [
 
         return Lifecycles::for($d)->cancelScheduled('bc');
     }],
+    'roll back after a direct write' => [function (Document $d) {
+        Lifecycles::for($d)->apply('ab');
+        Lifecycles::allowDirectWrites(fn () => $d->update(['status' => 'c']));
+
+        return Lifecycles::for($d)->rollback();
+    }],
+    'check the rollback after a direct write' => [function (Document $d) {
+        $ab = Lifecycles::for($d)->apply('ab');
+        $bc = Lifecycles::for($d)->apply('bc');
+        Lifecycles::allowDirectWrites(fn () => $d->update(['status' => 'd']));
+
+        return [
+            Lifecycles::for($d)->canRollback()->codes(),
+            Lifecycles::for($d)->canRollbackTo($bc->record)->codes(),
+            Lifecycles::for($d)->canRollbackTo($ab->record)->codes(),
+        ];
+    }],
+    'roll back an ignoresFreeze transition while frozen after a direct write' => [function (Document $d) {
+        Lifecycles::for($d)->apply('thaw');
+        Lifecycles::allowDirectWrites(fn () => $d->update(['status' => 'd']));
+        Lifecycles::for($d)->freeze();
+
+        return Lifecycles::for($d)->canRollback();
+    }],
+    'roll back after a write that bypassed the engine' => [function (Document $d) {
+        Lifecycles::for($d)->apply('ab');
+        Document::query()->whereKey($d->id)->update(['status' => 'c']);
+        $d->refresh();
+
+        return Lifecycles::for($d)->rollback();
+    }],
     'expire at an instant' => [function (Document $d): CarbonInterface {
         Lifecycles::for($d)->apply('ab');
 

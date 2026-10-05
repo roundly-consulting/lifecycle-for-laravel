@@ -335,9 +335,10 @@ final class LifecycleFake extends LifecycleManager
     /**
      * Pops the fake's own stack of applied transitions; refused like the real one for every
      * reason that needs no database and no Gate (nothing to roll back, a point not on the stack,
-     * irreversible or non-compensating transitions, the window, the freeze, system-only
-     * transitions in user context, the actor rules, the reason). It re-opens the schedules the
-     * reverted transitions forgot and forgets those of the states it leaves.
+     * irreversible or non-compensating transitions, a state a direct write changed since the last
+     * faked transition, the window, the freeze, system-only transitions in user context, the
+     * actor rules, the reason). It re-opens the schedules the reverted transitions forgot and
+     * forgets those of the states it leaves.
      */
     public function rollback(RollbackRequest $request): RollbackResult
     {
@@ -426,12 +427,17 @@ final class LifecycleFake extends LifecycleManager
         }
 
         $targets = [array_pop($stack)];
+        // A write that bypassed the fake left the state its last transition entered; the real
+        // engine adopts it as a non-reversible step on top of the path.
+        $drifted = $definition->key($targets[0]->to) !== $this->current($request->subject, $request->lifecycle, $definition);
 
         if ($request->toHistoryId !== null) {
             $ids = array_map(static fn (TransitionResult $result): int => $result->record->id, $stack);
 
             if ($targets[0]->record->id === $request->toHistoryId) {
-                return Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
+                return $drifted
+                    ? Decision::from($this->rollbackDenials($request, $definition, [], true))
+                    : Decision::deny(Denial::of(DenialCode::NothingToRollback, $params, source: 'fake'));
             }
 
             if (! in_array($request->toHistoryId, $ids, true)) {
@@ -445,26 +451,29 @@ final class LifecycleFake extends LifecycleManager
 
                 $targets[] = $result;
             }
+        } elseif ($drifted) {
+            $targets = [];
         }
 
-        return Decision::from($this->rollbackDenials($request, $definition, $targets));
+        return Decision::from($this->rollbackDenials($request, $definition, $targets, $drifted));
     }
 
     /**
      * The real rollback rules the fake can decide without a database or the Gate.
      *
-     * @param  non-empty-list<TransitionResult>  $targets  newest first
+     * @param  list<TransitionResult>  $targets  newest first
+     * @param  bool  $drifted  a write left the last faked state: a non-reversible step tops the targets
      * @return list<Denial>
      */
-    private function rollbackDenials(RollbackRequest $request, CompiledDefinition $definition, array $targets): array
+    private function rollbackDenials(RollbackRequest $request, CompiledDefinition $definition, array $targets, bool $drifted): array
     {
         $current = $this->current($request->subject, $request->lifecycle, $definition);
         $params = ['state' => $definition->stateLabel($current), 'transition' => ''];
         $actor = $this->container()->make(ActorResolver::class)->resolve($request->actor, $request->system);
         $pipeline = $this->container()->make(GuardPipeline::class);
         $window = Durations::nullableFromConfig('lifecycle.rollback.default_window');
-        $ignoresFreeze = true;
-        $denials = [];
+        $ignoresFreeze = ! $drifted;
+        $denials = $drifted ? [Denial::of(DenialCode::NotReversible, $params, source: 'rollback')] : [];
 
         foreach ($targets as $target) {
             $transition = $definition->transition($target->transition);
