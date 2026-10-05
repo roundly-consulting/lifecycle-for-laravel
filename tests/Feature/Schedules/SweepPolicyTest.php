@@ -86,6 +86,33 @@ it('defers while the subject is frozen and runs once the freeze lapses', functio
         ->and(Lifecycles::for($document->fresh())->isFrozen())->toBeFalse();
 });
 
+it('regression: runs a due schedule of an ignoresFreeze() transition while frozen', function (): void {
+    [$document, $schedule] = dueDocument(fn (TransitionBuilder $go) => $go->ignoresFreeze());
+    Lifecycles::for($document)->freeze();
+
+    expect(Lifecycles::sweep()->executed)->toBe(1)
+        ->and($schedule->fresh()?->status)->toBe(ScheduleStatus::Executed)
+        ->and($schedule->fresh()?->attempts)->toBe(0)
+        ->and(Lifecycles::for($document->fresh())->state())->toBe('b')
+        ->and(Lifecycles::for($document->fresh())->isFrozen())->toBeTrue();
+});
+
+it('regression: expires through an ignoresFreeze() expiry transition while frozen', function (): void {
+    defineDocumentLifecycle(fn (LifecycleBuilder $l) => baseLifecycle(
+        $l,
+        go: fn (TransitionBuilder $go) => $go,
+        finish: fn (TransitionBuilder $finish) => $finish->systemOnly()->ignoresFreeze(),
+    )->state('b')->ttl('1 day')->expiresVia('finish'));
+    $document = Document::factory()->create();
+    Lifecycles::for($document)->apply('go');
+    Lifecycles::for($document)->freeze();
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-03 10:00:00', 'UTC'));
+
+    expect(Lifecycles::sweep()->executed)->toBe(1)
+        ->and(Lifecycles::for($document->fresh())->state())->toBe('c');
+});
+
 it('cancels a schedule whose state was left by a write that bypassed the engine', function (): void {
     [$document, $schedule] = dueDocument(fn (TransitionBuilder $go) => $go);
     Document::query()->whereKey($document->id)->update(['status' => 'b']);

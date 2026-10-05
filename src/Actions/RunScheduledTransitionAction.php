@@ -42,9 +42,9 @@ use Throwable;
  * Executes one due schedule, always in system context, in its own transaction: subject
  * locked first, then its record, then the schedule row. A denial with only retryable codes
  * is retried later (until `schedules.max_attempts`), any other denial fails it; a schedule
- * whose state was left is cancelled; a frozen subject defers it. An exception never poisons
- * the sweep: it is reported, counted against the attempts and the sweep moves on — inline
- * and queued alike.
+ * whose state was left is cancelled; a frozen subject defers it unless its transition
+ * `ignoresFreeze()`. An exception never poisons the sweep: it is reported, counted against
+ * the attempts and the sweep moves on — inline and queued alike.
  *
  * @internal
  */
@@ -125,11 +125,14 @@ final readonly class RunScheduledTransitionAction
             return ScheduleRun::Cancelled;
         }
 
+        // Resolved first, so a transition that ignoresFreeze() runs while frozen.
+        $transition = $this->pipeline->resolve($definition, $schedule->transition, null, $record->state);
+
         if ($record->frozen_at !== null) {
             if (! $record->isFrozen($now)) {
                 // A lapsed freeze is cleared here; the schedule is due, so it runs now.
                 $record->forceFill(['frozen_at' => null, 'frozen_until' => null, 'frozen_reason' => null, 'frozen_by_type' => null, 'frozen_by_id' => null])->save();
-            } else {
+            } elseif ($transition instanceof Denial || ! $transition->ignoresFreeze) {
                 $schedule->forceFill(['due_at' => $record->frozen_until ?? Durations::add($now, self::retryAfter())])->save();
 
                 return ScheduleRun::Deferred;
@@ -139,7 +142,6 @@ final readonly class RunScheduledTransitionAction
         $context = $schedule->context ?? [];
         $payload = is_array($context['payload'] ?? null) ? $context['payload'] : [];
         $reason = is_string($context['reason'] ?? null) ? $context['reason'] : null;
-        $transition = $this->pipeline->resolve($definition, $schedule->transition, null, $record->state);
 
         if ($transition instanceof Denial) {
             return $this->denied($subject, $schedule, Decision::deny($transition), $now);

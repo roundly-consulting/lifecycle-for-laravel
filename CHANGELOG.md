@@ -6,6 +6,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Fixed
+
+- The sweep no longer defers a due schedule or expiry of a frozen subject when its transition
+  `ignoresFreeze()`: it runs while frozen, as a direct `apply()` already did. Other transitions
+  still wait for the freeze to end.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.
