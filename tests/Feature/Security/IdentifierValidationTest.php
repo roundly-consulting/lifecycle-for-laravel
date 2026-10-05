@@ -13,7 +13,16 @@ it('refuses column names that could carry SQL', function (Closure $define): void
     'stamp' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->stamps('paid_at = now()--')],
     'quota scope' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->quota(1, 'user_id) or (1=1')],
     'snapshot' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->transition('x')->from('a')->to('c')->snapshots('price; drop table x')],
+    'stamp with a trailing newline' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->stamps("paid_at\n")],
+    'quota scope with a trailing newline' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->state('b')->quota(1, "user_id\n")],
+    'snapshot with a trailing newline' => [fn (LifecycleBuilder $l) => baseLifecycle($l)->transition('x')->from('a')->to('c')->snapshots("price\n")],
 ]);
+
+it('regression: refuses a transition name with a trailing newline', function (): void {
+    $report = validateLifecycle(fn (LifecycleBuilder $l) => baseLifecycle($l)->transition("publish\n")->from('a')->to('c'));
+
+    expect($report->has(IssueCode::InvalidTransitionName))->toBeTrue();
+});
 
 it('binds state values, never interpolates them', function (): void {
     $odd = "o'brien\"; drop table lifecycle_states; --";

@@ -11,6 +11,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 - The sweep no longer defers a due schedule or expiry of a frozen subject when its transition
   `ignoresFreeze()`: it runs while frozen, as a direct `apply()` already did. Other transitions
   still wait for the freeze to end.
+- Definition validation now refuses a column name (stamp, quota scope, snapshot, expiry or deadline attribute)
+  or a transition name that ends in a newline (`invalid_identifier` / `invalid_transition_name`),
+  instead of letting it through to a late database error.
 
 ## 1.0.0 - 2026-10-03
 
