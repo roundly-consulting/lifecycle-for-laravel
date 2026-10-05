@@ -17,6 +17,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 - `Lifecycles::fake()`: `rollback()`, `canRollback()` and `canRollbackTo()` now refuse
   `not_reversible` once a direct write changed the state the last faked transition entered, like
   the real engine, instead of reverting over the write.
+- `neverExpire()` on a model loaded with `withLifecycle()` now returns whether an expiry is
+  pending at the time of the call, not at load time.
 
 ## 1.0.0 - 2026-10-03
 

@@ -461,11 +461,13 @@ final readonly class LifecycleHandle
     }
 
     /**
-     * Clear the pending expiry of the current stay; true when there was one.
+     * Clear the pending expiry of the current stay; true when there was one. Read fresh from
+     * the database, never from eager-loaded schedules; a concurrent clear can still race it.
      */
     public function neverExpire(): bool
     {
-        $had = $this->expiresAt() !== null;
+        $had = $this->subject->exists
+            && ScheduleModel::of($this->subject, $this->lifecycle)->where('pending_slot', ScheduleBook::EXPIRY_SLOT)->exists();
 
         $this->manager->changeExpiry(new ExpiryChangeRequest($this->subject, $this->lifecycle, ExpiryChange::Clear, actor: $this->actor));
 

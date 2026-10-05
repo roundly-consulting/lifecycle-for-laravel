@@ -263,3 +263,13 @@ it('reads expiry from eager-loaded schedules', function (): void {
         ->and(Lifecycles::for($loaded)->expiresAt()?->toDateTimeString())->toBe('2026-11-01 10:00:00')
         ->and(Lifecycles::for($loaded)->version())->toBe(2);
 });
+
+it('regression: neverExpire() on an eager-loaded model reports what is pending now, not at load time', function (): void {
+    $listing = Listing::factory()->create();
+    $listing->transition('publish');
+    $stale = Listing::query()->withLifecycle()->findOrFail($listing->id);
+
+    expect(Lifecycles::for(Listing::query()->findOrFail($listing->id))->neverExpire())->toBeTrue()
+        ->and(LifecycleSchedule::query()->whereNotNull('pending_slot')->count())->toBe(0)
+        ->and(Lifecycles::for($stale)->neverExpire())->toBeFalse();
+});
