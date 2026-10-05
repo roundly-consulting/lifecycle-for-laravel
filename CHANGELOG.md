@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Changed
+
+- Documentation: the `LifecycleFake` docblock no longer claims the fake computes the real expiry
+  instant; it names where `extend()` and `neverExpire()` differ from the real engine.
+
 ### Fixed
 
 - The sweep no longer defers a due schedule or expiry of a frozen subject when its transition

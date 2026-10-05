@@ -70,10 +70,12 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * against the in-memory model and, when they pass, changes the attribute in memory — no database
  * writes, no events, no jobs. It keeps its own state for what it was asked to do: a fake freeze refuses
  * transitions (`frozen`) like a real one, a fake schedule can be cancelled once and is
- * forgotten when a faked transition leaves its state, and expiry changes compute the real
- * instant from the state's TTL. DB-backed checks (guards, limits, quotas) are skipped; steer
- * outcomes with `denyNext()` / `deny()`. The model hooks that only touch the in-memory model
- * (initial state, strict writes) keep their real behaviour; the DB-touching ones do nothing.
+ * forgotten when a faked transition leaves its state, and expiry changes compute an instant
+ * without writing it. No expiry is tracked: `extend()` starts from the expiry in the database
+ * (now, for a stay entered under the fake) and `neverExpire()` reports whether the database
+ * holds one. DB-backed checks (guards, limits, quotas) are skipped; steer outcomes with
+ * `denyNext()` / `deny()`. The model hooks that only touch the in-memory model (initial state,
+ * strict writes) keep their real behaviour; the DB-touching ones do nothing.
  */
 final class LifecycleFake extends LifecycleManager
 {
