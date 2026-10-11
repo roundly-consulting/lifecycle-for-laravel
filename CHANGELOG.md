@@ -6,6 +6,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: requires the latest roundly packages — package-toolkit `^1.3.0`, enums `^1.1.0`; dev: testing `^1.2.1`.
+
 ## 1.0.1 - 2026-10-05
 
 ### Changed
