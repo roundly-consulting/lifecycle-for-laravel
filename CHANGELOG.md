@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 1.0.3 - 2026-10-17
+
 ### Fixed
 
 - Factories build the configured model when a host swaps it.
