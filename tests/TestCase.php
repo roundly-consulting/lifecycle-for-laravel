@@ -29,6 +29,16 @@ abstract class TestCase extends PackageTestCase
         return [LifecycleServiceProvider::class, __DIR__.'/Fixtures/migrations'];
     }
 
+    /**
+     * Migrate once per worker and schema signature, then reset only the data between tests.
+     * Every forked racer ends with SIGKILL on a connection of its own (see Support\Racer), so
+     * the kept session survives it.
+     */
+    protected function keepsMigratedSchema(): bool
+    {
+        return true;
+    }
+
     protected function setUp(): void
     {
         InlineLifecycle::$define = null;
