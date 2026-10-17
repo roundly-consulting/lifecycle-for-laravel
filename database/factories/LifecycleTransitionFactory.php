@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\TransitionModel;
 
 /**
  * @extends Factory<LifecycleTransition>
@@ -15,6 +16,17 @@ use RoundlyConsulting\Lifecycle\Support\Clock;
 final class LifecycleTransitionFactory extends Factory
 {
     protected $model = LifecycleTransition::class;
+
+    /**
+     * Build the model the host configured in `lifecycle.models.transition`, not the packaged one,
+     * so a host subclass comes out of the factory with its own events and observers.
+     *
+     * @return class-string<LifecycleTransition>
+     */
+    public function modelName(): string
+    {
+        return TransitionModel::class();
+    }
 
     /**
      * @return array<string, mixed>

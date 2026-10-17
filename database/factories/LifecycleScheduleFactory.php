@@ -9,6 +9,7 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 
 /**
  * @extends Factory<LifecycleSchedule>
@@ -16,6 +17,17 @@ use RoundlyConsulting\Lifecycle\Support\Clock;
 final class LifecycleScheduleFactory extends Factory
 {
     protected $model = LifecycleSchedule::class;
+
+    /**
+     * Build the model the host configured in `lifecycle.models.schedule`, not the packaged one,
+     * so a host subclass comes out of the factory with its own events and observers.
+     *
+     * @return class-string<LifecycleSchedule>
+     */
+    public function modelName(): string
+    {
+        return ScheduleModel::class();
+    }
 
     /**
      * @return array<string, mixed>

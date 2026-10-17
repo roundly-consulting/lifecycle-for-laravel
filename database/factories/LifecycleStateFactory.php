@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\StateModel;
 
 /**
  * @extends Factory<LifecycleState>
@@ -15,6 +16,17 @@ use RoundlyConsulting\Lifecycle\Support\Clock;
 final class LifecycleStateFactory extends Factory
 {
     protected $model = LifecycleState::class;
+
+    /**
+     * Build the model the host configured in `lifecycle.models.state`, not the packaged one,
+     * so a host subclass comes out of the factory with its own events and observers.
+     *
+     * @return class-string<LifecycleState>
+     */
+    public function modelName(): string
+    {
+        return StateModel::class();
+    }
 
     /**
      * @return array<string, mixed>

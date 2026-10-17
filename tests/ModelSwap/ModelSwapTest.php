@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Models\LifecycleState;
+use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\CustomSchedule;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\CustomState;
 use RoundlyConsulting\Lifecycle\Tests\Fixtures\Models\CustomTransition;
@@ -32,4 +35,22 @@ it('creates schedule rows as the host class', function (): void {
 
         return $listing->lifecycleSchedules()->get()->all();
     });
+});
+
+/**
+ * The factories named the packaged models, so `LifecycleState::factory()` and its siblings
+ * built the packaged classes after a host swapped them: the host's model events never ran.
+ */
+it('builds the configured models from the packaged factories', function (): void {
+    CustomState::resetCreationCount();
+    CustomTransition::resetCreationCount();
+    CustomSchedule::resetCreationCount();
+
+    expect(LifecycleState::factory()->create()::class)->toBe(CustomState::class)
+        ->and(LifecycleTransition::factory()->create()::class)->toBe(CustomTransition::class)
+        ->and(LifecycleSchedule::factory()->create()::class)->toBe(CustomSchedule::class)
+        ->and(CustomState::factory()->create()::class)->toBe(CustomState::class)
+        ->and(CustomState::creationCount())->toBe(2)
+        ->and(CustomTransition::creationCount())->toBe(1)
+        ->and(CustomSchedule::creationCount())->toBe(1);
 });
