@@ -44,6 +44,8 @@ ArchPresets::modelsResolveThroughSeam(__DIR__.'/../src', 'Support', [
     'lifecycle.models.transition',
     'lifecycle.models.schedule',
 ]);
+// A host swap reaches the packaged factories too: each one builds the configured model.
+ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../database/factories', __DIR__.'/../src', 'Support');
 ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../database/migrations');
 
 /**
