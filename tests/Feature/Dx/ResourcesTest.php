@@ -57,7 +57,7 @@ it('renders the lifecycle with allowed and refused transitions', function (): vo
         ],
         'last_transition' => [
             'id' => 2, 'kind' => 'transition', 'transition' => 'publish', 'from' => 'draft', 'to' => 'active',
-            'actor' => ['type' => $user->getMorphClass(), 'id' => $user->id], 'system' => false, 'reason' => 'ready',
+            'actor' => ['id' => $user->id, 'type' => 'User'], 'system' => false, 'reason' => 'ready',
             'occurred_at' => '2026-10-02T08:00:00+00:00', 'reverted' => false,
         ],
     ]);

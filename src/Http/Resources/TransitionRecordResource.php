@@ -8,9 +8,12 @@ use BackedEnum;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRecord;
+use RoundlyConsulting\Lifecycle\Support\Resources;
 
 /**
- * One history row for an API. Context and snapshot stay out unless `withContext()`.
+ * One history row for an API. Context and snapshot stay out unless `withContext()`. The actor
+ * renders through `lifecycle.resources.actor` ({@see TransitionActorResource} by default:
+ * `{id, type}` with the class basename) and is `null` for a row without one.
  *
  * @property TransitionRecord $resource
  */
@@ -43,7 +46,7 @@ final class TransitionRecordResource extends JsonResource
             'transition' => $record->transition,
             'from' => self::raw($record->from),
             'to' => self::raw($record->to),
-            'actor' => $record->actorType === null ? null : ['type' => $record->actorType, 'id' => $record->actorId],
+            'actor' => $record->actorType === null ? null : $this->actor($record, $request),
             'system' => $record->system,
             'reason' => $record->reason,
             'occurred_at' => $record->occurredAt->toIso8601String(),
@@ -55,5 +58,17 @@ final class TransitionRecordResource extends JsonResource
     public static function raw(BackedEnum|string|null $state): string|int|null
     {
         return $state instanceof BackedEnum ? $state->value : $state;
+    }
+
+    /**
+     * The actor through the configured `lifecycle.resources.actor` resource, resolved to a plain
+     * array with the same request — `toArray()` callers get an array, never a resource object,
+     * and `when()` / `MissingValue` entries are dropped as for any nested resource.
+     *
+     * @return array<array-key, mixed>
+     */
+    private function actor(TransitionRecord $record, Request $request): array
+    {
+        return Resources::actor()::make($record)->resolve($request);
     }
 }

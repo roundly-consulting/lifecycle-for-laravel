@@ -39,6 +39,15 @@ final class InvalidLifecycleConfigurationException extends LifecycleException
         ));
     }
 
+    public static function notAResource(string $key, mixed $value): self
+    {
+        return new self(sprintf(
+            'The [%s] setting must be an instantiable JsonResource subclass, [%s] given.',
+            $key,
+            is_string($value) ? $value : get_debug_type($value),
+        ));
+    }
+
     public static function statementBinlog(Throwable $previous): self
     {
         return new self(

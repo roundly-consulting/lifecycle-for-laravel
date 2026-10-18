@@ -6,6 +6,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Added
+
+- `TransitionActorResource`: the API resource a history row's `actor` renders through —
+  `{id, type}`, where `type` is the actor model's class basename. It wraps the
+  `TransitionRecord`, so rendering history loads no actor and adds no query.
+- `lifecycle.resources.actor` config key: swap the actor resource for a `JsonResource` subclass
+  of your own to add what your API needs (a name, an avatar). Blank or `null` is the packaged
+  resource; anything that is not an instantiable `JsonResource` subclass throws
+  `InvalidLifecycleConfigurationException` (`notAResource`).
+
+### Changed
+
+- `TransitionRecordResource` (and `LifecycleResource`'s `last_transition`) renders `actor.type`
+  as the actor model's class basename (`User`) instead of its morph class, so an API never shows
+  a PHP class name (`App\Models\User` without a morph map). With a morph map, `type` is the
+  basename of the mapped class instead of the alias. Swap the resource via
+  `lifecycle.resources.actor` to render something else.
+
 ## 1.0.3 - 2026-10-17
 
 ### Fixed

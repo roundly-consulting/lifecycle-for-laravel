@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Lifecycle\Http\Resources\TransitionActorResource;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Models\LifecycleState;
 use RoundlyConsulting\Lifecycle\Models\LifecycleTransition;
@@ -38,6 +39,23 @@ return [
         'state' => LifecycleState::class,
         'transition' => LifecycleTransition::class,
         'schedule' => LifecycleSchedule::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | API resources
+    |--------------------------------------------------------------------------
+    |
+    | `actor` renders who performed a history row (the `actor` of
+    | TransitionRecordResource). The default gives `{id, type}`, where `type`
+    | is the actor model's class basename. Swap it for a JsonResource subclass
+    | of your own to add what your API needs (a name, an avatar); it receives
+    | the TransitionRecord (`actorType`, `actorId`). Null = the default.
+    |
+    */
+
+    'resources' => [
+        'actor' => TransitionActorResource::class,
     ],
 
     /*
