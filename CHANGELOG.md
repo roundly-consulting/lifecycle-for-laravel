@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-18
+
 ### Added
 
 - `TransitionActorResource`: the API resource a history row's `actor` renders through —
@@ -23,6 +25,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
   a PHP class name (`App\Models\User` without a morph map). With a morph map, `type` is the
   basename of the mapped class instead of the alias. Swap the resource via
   `lifecycle.resources.actor` to render something else.
+- Maintenance: dev: testing `^1.6`.
+- Maintenance: CI runs the PostgreSQL and MySQL test legs on tmpfs.
 
 ## 1.0.3 - 2026-10-17
 
