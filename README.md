@@ -25,7 +25,7 @@ rollbacks and an append-only history.
 
 ## Installation
 
-Requires PHP 8.4, Laravel 12 or 13, and SQLite, PostgreSQL or MySQL/MariaDB.
+Requires PHP 8.4, Laravel 13, and SQLite, PostgreSQL or MySQL/MariaDB.
 
 ```bash
 composer require roundly-consulting/lifecycle-for-laravel
