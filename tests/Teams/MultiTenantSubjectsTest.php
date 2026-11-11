@@ -124,9 +124,12 @@ it('runs queued schedules as the subject team and hands that team to the jobs th
     expect(Lifecycles::sweep()->queued)->toBe(2)
         ->and(DB::table('jobs')->count())->toBe(2);
 
-    // A worker: no team context of its own.
+    // A worker: no team context of its own. Its memory ceiling is the whole test process's (the
+    // default 128 MB stops it before the first job when the suite runs in one process).
     Teams::setCurrent(null);
-    Artisan::call('queue:work', ['connection' => 'database', '--stop-when-empty' => true, '--sleep' => 0]);
+    $worked = Artisan::call('queue:work', ['connection' => 'database', '--stop-when-empty' => true, '--sleep' => 0, '--memory' => 4096]);
+
+    expect($worked)->toBe(0);
 
     expect(DB::table('failed_jobs')->count())->toBe(0)
         ->and(DB::table('jobs')->count())->toBe(0)
