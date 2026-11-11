@@ -23,8 +23,10 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * The sweep: paused rows of subjects restored without model events resumed, expiry warnings
- * (optional), then every due schedule in keyset batches by `(due_at, id)` — one transaction per schedule, inline or as a queued job. Bounded by
- * `schedules.max_per_run` (or the given limit). Always at the clock's now.
+ * (optional), then every due schedule in keyset batches by `(due_at, id)` — one transaction per
+ * schedule, inline or as a queued job, each inside its subject's tenant context
+ * (RestoresSubjectContext). Bounded by `schedules.max_per_run` (or the given limit). Always at
+ * the clock's now.
  */
 final readonly class RunDueSchedulesAction
 {
@@ -102,6 +104,7 @@ final readonly class RunDueSchedulesAction
             cancelled: $counts[ScheduleRun::Cancelled->value],
             skipped: $counts[ScheduleRun::Skipped->value],
             queued: $counts['queued'],
+            contextMissing: $counts[ScheduleRun::ContextMissing->value],
         );
     }
 

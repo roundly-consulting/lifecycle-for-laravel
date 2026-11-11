@@ -9,6 +9,7 @@ use Carbon\CarbonInterval;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Contracts\RestoresSubjectContext;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Decision;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\Denial;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\TransitionRequest;
@@ -29,7 +30,9 @@ use RoundlyConsulting\Lifecycle\Enums\TransitionKind;
 use RoundlyConsulting\Lifecycle\Events\LifecycleExpired;
 use RoundlyConsulting\Lifecycle\Events\ScheduledTransitionFailed;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
+use RoundlyConsulting\Lifecycle\Support\Clock;
 use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
@@ -43,8 +46,11 @@ use Throwable;
  * locked first, then its record, then the schedule row. A denial with only retryable codes
  * is retried later (until `schedules.max_attempts`), any other denial fails it; a schedule
  * whose state was left is cancelled; a frozen subject defers it unless its transition
- * `ignoresFreeze()`. An exception never poisons the sweep: it is reported, counted against
- * the attempts and the sweep moves on — inline and queued alike.
+ * `ignoresFreeze()`. It runs inside the subject's tenant context (RestoresSubjectContext), so
+ * a team-scoped subject is written — and its events and jobs dispatched — as its own team; a
+ * subject whose context is gone (its team was deleted) is put off by `schedules.retry_after`
+ * without counting an attempt. An exception never poisons the sweep: it is reported, counted
+ * against the attempts and the sweep moves on — inline and queued alike.
  *
  * @internal
  */
@@ -60,6 +66,7 @@ final readonly class RunScheduledTransitionAction
         private SubjectLocker $locker,
         private ScheduleBook $schedules,
         private TransitionExecutor $executor,
+        private RestoresSubjectContext $context,
     ) {}
 
     /**
@@ -88,11 +95,13 @@ final readonly class RunScheduledTransitionAction
                 return ScheduleRun::Skipped;
             }
 
-            return Transactions::run(
+            return $this->context->run($subject, fn (): ScheduleRun => Transactions::run(
                 $subject,
                 fn (): ScheduleRun => $this->run($subject, $scheduleId, $schedule->lifecycle, $now),
                 countsQuotas: $this->registry->of($subject, $schedule->lifecycle)->quotasOnTarget($schedule->transition, null),
-            );
+            ));
+        } catch (SubjectContextUnavailableException) {
+            return $this->contextMissing($scheduleId, $now, $connection);
         } catch (Throwable $exception) {
             $this->exceptions->report($exception);
 
@@ -227,6 +236,24 @@ final readonly class RunScheduledTransitionAction
         $this->failed($schedule, $decision->denials, $attempts, $subject->getMorphClass());
 
         return ScheduleRun::Failed;
+    }
+
+    /**
+     * The subject's tenant context is gone (its team was deleted): not an error and not an
+     * attempt — the row is put off by `schedules.retry_after` and runs once the context is back
+     * (a restored team), instead of failing or erroring on every sweep.
+     */
+    private function contextMissing(int $scheduleId, CarbonImmutable $now, ?string $connection): ScheduleRun
+    {
+        ScheduleModel::query($connection)
+            ->whereKey($scheduleId)
+            ->where('status', ScheduleStatus::Pending->value)
+            ->update([
+                'due_at' => Clock::format(Durations::add($now, self::retryAfter())),
+                'last_denial' => ScheduleRun::ContextMissing->value,
+            ]);
+
+        return ScheduleRun::ContextMissing;
     }
 
     /**

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle;
 
+use Illuminate\Contracts\Foundation\Application;
 use RoundlyConsulting\Lifecycle\Accessors\DefinitionsAccessor;
 use RoundlyConsulting\Lifecycle\Actions\PruneAction;
+use RoundlyConsulting\Lifecycle\Bridges\Teams\TeamsSubjectContext;
 use RoundlyConsulting\Lifecycle\Commands\AdoptCommand;
 use RoundlyConsulting\Lifecycle\Commands\GraphCommand;
 use RoundlyConsulting\Lifecycle\Commands\MakeLifecycleCommand;
@@ -13,10 +15,13 @@ use RoundlyConsulting\Lifecycle\Commands\PruneCommand;
 use RoundlyConsulting\Lifecycle\Commands\ShowCommand;
 use RoundlyConsulting\Lifecycle\Commands\SweepCommand;
 use RoundlyConsulting\Lifecycle\Commands\ValidateCommand;
+use RoundlyConsulting\Lifecycle\Contracts\RestoresSubjectContext;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
 use RoundlyConsulting\Lifecycle\Graph\GraphExporter;
+use RoundlyConsulting\Lifecycle\Support\Bridges;
 use RoundlyConsulting\Lifecycle\Support\Isolation;
+use RoundlyConsulting\Lifecycle\Support\NullSubjectContext;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\StateModel;
 use RoundlyConsulting\Lifecycle\Support\SweepSchedule;
@@ -63,6 +68,11 @@ final class LifecycleServiceProvider extends PackageServiceProvider
                 'Strict state writes' => Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.strict_writes', true) ? 'ON' : 'OFF',
                 'Actor from auth' => Config::using(InvalidLifecycleConfigurationException::class)->boolean('lifecycle.actor.from_auth', true) ? 'ON' : 'OFF',
                 'Registered subjects' => (string) count(app(DefinitionsAccessor::class)->subjects()),
+                'Subject context' => match (Bridges::subjectContext()) {
+                    TeamsSubjectContext::class => 'teams',
+                    NullSubjectContext::class => 'none',
+                    default => class_basename(Bridges::subjectContext()),
+                },
                 'State model' => class_basename(StateModel::class()),
                 'History model' => class_basename(TransitionModel::class()),
                 'Schedule model' => class_basename(ScheduleModel::class()),
@@ -90,6 +100,9 @@ final class LifecycleServiceProvider extends PackageServiceProvider
         // per request / job.
         $this->app->scoped(WriteGuard::class);
         $this->app->scoped(Isolation::class);
+        // Resolved per use, so a changed `lifecycle.subjects.context` (or teams being installed)
+        // is honoured without a cached instance.
+        $this->app->bind(RestoresSubjectContext::class, static fn (Application $app): RestoresSubjectContext => $app->make(Bridges::subjectContext()));
     }
 
     public function boot(): void

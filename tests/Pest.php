@@ -12,6 +12,7 @@ use RoundlyConsulting\Lifecycle\Tests\Fixtures\Definitions\InlineLifecycle;
 use RoundlyConsulting\Lifecycle\Tests\Support\GeneratorSandboxTestCase;
 use RoundlyConsulting\Lifecycle\Tests\Support\SwappedModelsTestCase;
 use RoundlyConsulting\Lifecycle\Tests\Support\UuidKeysTestCase;
+use RoundlyConsulting\Lifecycle\Tests\Teams\TeamsTestCase;
 use RoundlyConsulting\Lifecycle\Tests\TestCase;
 
 uses(TestCase::class)->in('Unit', 'Feature', 'RealEngine', 'Property', 'ArchTest.php', 'ConfigContractTest.php', 'MigrationsTest.php');
@@ -19,6 +20,10 @@ uses(TestCase::class)->in('Unit', 'Feature', 'RealEngine', 'Property', 'ArchTest
 // Model-swap and uuid-key proofs need their config applied BEFORE boot: own base cases.
 uses(SwappedModelsTestCase::class)->in('ModelSwap');
 uses(UuidKeysTestCase::class)->in('UuidKeys');
+
+// teams-for-laravel installed and booted: ScopedToTeam subjects. Group `teams`: the no-teams CI
+// leg removes the package and leaves it out.
+uses(TeamsTestCase::class)->group('teams')->in('Teams');
 
 // make:lifecycle and the stub publish write into app/ and base_path('stubs'): a per-test
 // mirror of the skeleton, never the one every parallel process boots from.

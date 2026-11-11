@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Lifecycle\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\LifecycleManager;
 use Throwable;
 
@@ -28,11 +30,16 @@ final class AdoptCommand extends Command
         try {
             $chunk = IntegerOption::parse($this->option('chunk'), 'chunk') ?? 500;
             $option = $this->option('lifecycle');
+            $skipped = 0;
             $count = $lifecycle->adoptAll(
                 $arguments->model(ResolvesLifecycleArguments::string($this->argument('model'))),
                 is_string($option) && $option !== '' ? $option : null,
                 $chunk,
                 $this->option('no-expiry') !== true,
+                function (Model $subject, SubjectContextUnavailableException $exception) use (&$skipped): void {
+                    $skipped++;
+                    $this->warn('Skipped: '.$exception->getMessage());
+                },
             );
         } catch (Throwable $exception) {
             $this->error($exception->getMessage());
@@ -41,6 +48,10 @@ final class AdoptCommand extends Command
         }
 
         $this->info(sprintf('Adopted %d subject(s).', $count));
+
+        if ($skipped > 0) {
+            $this->warn(sprintf('Skipped %d subject(s) whose tenant context could not be restored (their team was deleted or is missing).', $skipped));
+        }
 
         return self::SUCCESS;
     }

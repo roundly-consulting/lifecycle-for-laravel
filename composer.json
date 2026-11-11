@@ -39,7 +39,7 @@
         "illuminate/support": "^13.0",
         "illuminate/validation": "^13.0",
         "roundly-consulting/enums-for-laravel": "^2.0",
-        "roundly-consulting/package-toolkit-for-laravel": "^2.0"
+        "roundly-consulting/package-toolkit-for-laravel": "^2.1"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -50,7 +50,11 @@
         "pestphp/pest-plugin-arch": "^5.0",
         "pestphp/pest-plugin-laravel": "^5.0",
         "phpstan/extension-installer": "^1.4",
+        "roundly-consulting/teams-for-laravel": "^2.3",
         "roundly-consulting/testing-for-laravel": "^2.0"
+    },
+    "suggest": {
+        "roundly-consulting/teams-for-laravel": "Multi-tenant subjects: ScopedToTeam models are swept, warned, retried and adopted as their own team."
     },
     "autoload": {
         "psr-4": {

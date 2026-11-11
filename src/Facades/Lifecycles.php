@@ -30,7 +30,7 @@ use RoundlyConsulting\Lifecycle\Testing\LifecycleFake;
  * @method static bool retrySchedule(int $scheduleId, string|null $connection = null)
  * @method static \RoundlyConsulting\Lifecycle\DataTransferObjects\SweepResult sweep(int|null $limit = null, bool|null $queue = null, string|null $connection = null)
  * @method static bool adopt(\Illuminate\Database\Eloquent\Model $subject, string|null $lifecycle = null)
- * @method static int adoptAll(string $class, string|null $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true)
+ * @method static int adoptAll(string $class, string|null $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true, \Closure|null $skipped = null)
  * @method static mixed allowDirectWrites(\Closure $callback)
  * @method static \RoundlyConsulting\Lifecycle\Testing\LifecycleFake denyNext(string $transition, \RoundlyConsulting\Lifecycle\Enums\DenialCode|string $code = \RoundlyConsulting\Lifecycle\Enums\DenialCode::GuardFailed, string|null $message = null)
  * @method static \RoundlyConsulting\Lifecycle\Testing\LifecycleFake deny(string $transition, \RoundlyConsulting\Lifecycle\Enums\DenialCode|string $code, string|null $message = null)

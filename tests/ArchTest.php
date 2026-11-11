@@ -56,6 +56,10 @@ ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 
 ArchPresets::noDebuggingLeftovers();
 
+// teams-for-laravel is optional (require-dev, suggest): only its bridge folder names it, so the
+// package loads without it.
+ArchPresets::noVendorNamespace('RoundlyConsulting\Teams', __DIR__.'/../src', ['RoundlyConsulting\Lifecycle\Bridges\Teams']);
+
 // The trait and the models reach behaviour through LifecycleManager, never an action.
 ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Lifecycle');
 

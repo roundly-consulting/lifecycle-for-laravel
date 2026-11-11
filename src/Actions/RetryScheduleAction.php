@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Actions;
 
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Contracts\RestoresSubjectContext;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\ScheduleBook;
 use RoundlyConsulting\Lifecycle\Engine\StateRecords;
 use RoundlyConsulting\Lifecycle\Engine\SubjectLocker;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
@@ -17,7 +20,9 @@ use RoundlyConsulting\Lifecycle\Support\Transactions;
 /**
  * Puts a failed schedule back to pending with its attempts reset; it runs at the next
  * sweep. False when it is not failed, the subject is gone or has left the schedule's state,
- * or the slot is taken by another open schedule. Authorization is the host's.
+ * the subject's tenant context is gone (its team was deleted), or the slot is taken by another
+ * open schedule. Runs inside the subject's tenant context (RestoresSubjectContext), whatever
+ * context the caller is in. Authorization is the host's.
  */
 final readonly class RetryScheduleAction
 {
@@ -25,6 +30,7 @@ final readonly class RetryScheduleAction
         private DefinitionRegistry $registry,
         private SubjectLocker $locker,
         private StateRecords $records,
+        private RestoresSubjectContext $context,
     ) {}
 
     /**
@@ -40,6 +46,15 @@ final readonly class RetryScheduleAction
             return false;
         }
 
+        try {
+            return $this->context->run($subject, fn (): bool => $this->retry($subject, $scheduleId));
+        } catch (SubjectContextUnavailableException) {
+            return false;
+        }
+    }
+
+    private function retry(Model $subject, int $scheduleId): bool
+    {
         return Transactions::run($subject, function () use ($subject, $scheduleId): bool {
             $this->locker->lock($subject);
 

@@ -21,4 +21,6 @@ enum ScheduleRun: string
     case Errored = 'errored';
     case Cancelled = 'cancelled';
     case Skipped = 'skipped';
+    // The subject's tenant context could not be restored (its team is gone): put off, not run.
+    case ContextMissing = 'context_missing';
 }

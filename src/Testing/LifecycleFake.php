@@ -649,7 +649,7 @@ final class LifecycleFake extends LifecycleManager
         return false;
     }
 
-    public function adoptAll(string $class, ?string $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true): int
+    public function adoptAll(string $class, ?string $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true, ?Closure $skipped = null): int
     {
         $this->calls[] = new RecordedCall('adoptAll', $this->model($class, $lifecycle), 0);
 

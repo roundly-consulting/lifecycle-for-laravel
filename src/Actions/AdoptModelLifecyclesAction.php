@@ -4,26 +4,34 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Lifecycle\Actions;
 
+use Closure;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Lifecycle\Contracts\RestoresSubjectContext;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleUsageException;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\Support\SoftDeletion;
 use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 
 /**
  * Adopts every row of a model in chunks — for tables that existed before the lifecycle, or
- * after bulk writes that bypassed model events. Soft-deleted rows are skipped. Returns how
- * many subjects changed.
+ * after bulk writes that bypassed model events. Soft-deleted rows are skipped. Each subject is
+ * adopted inside its own tenant context (RestoresSubjectContext); one whose context is gone (its
+ * team was deleted) is skipped and handed to `$skipped`. Returns how many subjects changed.
  */
 final readonly class AdoptModelLifecyclesAction
 {
     public function __construct(
         private DefinitionRegistry $registry,
         private AdoptLifecycleAction $adopt,
+        private RestoresSubjectContext $context,
     ) {}
 
-    public function execute(string $class, string $lifecycle, int $chunk = 500, bool $scheduleExpiry = true): int
+    /**
+     * @param  (Closure(Model, SubjectContextUnavailableException): void)|null  $skipped  called for each subject skipped because its tenant context is gone
+     */
+    public function execute(string $class, string $lifecycle, int $chunk = 500, bool $scheduleExpiry = true, ?Closure $skipped = null): int
     {
         $class = SubjectResolver::classFor($class);
         $model = new $class;
@@ -41,10 +49,16 @@ final readonly class AdoptModelLifecyclesAction
 
         $changed = 0;
 
-        $query->chunkById($chunk, function (Collection $subjects) use ($lifecycle, $scheduleExpiry, &$changed): void {
+        $query->chunkById($chunk, function (Collection $subjects) use ($lifecycle, $scheduleExpiry, $skipped, &$changed): void {
             foreach ($subjects as $subject) {
-                if ($this->adopt->execute($subject, $lifecycle, $scheduleExpiry)) {
-                    $changed++;
+                try {
+                    if ($this->context->run($subject, fn (): bool => $this->adopt->execute($subject, $lifecycle, $scheduleExpiry))) {
+                        $changed++;
+                    }
+                } catch (SubjectContextUnavailableException $exception) {
+                    if ($skipped !== null) {
+                        $skipped($subject, $exception);
+                    }
                 }
             }
         });

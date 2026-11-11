@@ -52,6 +52,7 @@ use RoundlyConsulting\Lifecycle\DataTransferObjects\UnfreezeRequest;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Exceptions\DirectStateWriteException;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\Exceptions\TransitionDeniedException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Support\WriteGuard;
@@ -224,14 +225,17 @@ class LifecycleManager
     }
 
     /**
-     * Reconcile every row of a model; returns how many changed.
+     * Reconcile every row of a model, each inside its own tenant context; returns how many
+     * changed. A row whose tenant context is gone (its team was deleted) is skipped and handed
+     * to `$skipped`.
      *
      * @param  class-string<Model>  $class
+     * @param  (Closure(Model, SubjectContextUnavailableException): void)|null  $skipped
      */
-    public function adoptAll(string $class, ?string $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true): int
+    public function adoptAll(string $class, ?string $lifecycle = null, int $chunk = 500, bool $scheduleExpiry = true, ?Closure $skipped = null): int
     {
         return $this->container()->make(AdoptModelLifecyclesAction::class)
-            ->execute($class, $this->registry()->lifecycleName($class, $lifecycle), $chunk, $scheduleExpiry);
+            ->execute($class, $this->registry()->lifecycleName($class, $lifecycle), $chunk, $scheduleExpiry, $skipped);
     }
 
     /**

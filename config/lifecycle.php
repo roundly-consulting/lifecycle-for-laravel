@@ -68,9 +68,20 @@ return [
     | listed here, including the columns its definition names. Models work
     | without being listed; list them so CI validates something.
     |
+    | `context` restores a subject's tenant context whenever the package acts
+    | on it outside your code's own context: the sweep, queued schedules,
+    | expiry warnings, retries and `lifecycle:adopt`. A class implementing
+    | Contracts\RestoresSubjectContext; null = the teams-for-laravel bridge
+    | when teams is installed (a ScopedToTeam subject runs as its own team),
+    | else none.
+    |
     */
 
-    'subjects' => [],
+    'subjects' => [
+        // App\Models\Order::class,
+
+        'context' => null,
+    ],
 
     /*
     |--------------------------------------------------------------------------

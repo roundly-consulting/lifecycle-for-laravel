@@ -6,6 +6,39 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Added
+
+- Multi-tenant subjects: everything the package does to a subject outside your code's own
+  context — `lifecycle:sweep` and `Lifecycles::sweep()` / `schedules()->runDue()` (inline and
+  queued), expiry warnings, `schedules()->retry()` and `adoptAll()` / `lifecycle:adopt` — now
+  runs inside the subject's tenant context and restores the previous one afterwards, also on an
+  exception. Events and jobs dispatched there carry the subject's tenant.
+- `Contracts\RestoresSubjectContext` (`run(Model $subject, Closure $callback)`) and
+  `Support\NullSubjectContext`, bound through the new `lifecycle.subjects.context` config key
+  (validated strictly: anything but an instantiable implementation throws
+  `InvalidLifecycleConfigurationException`).
+- teams-for-laravel bridge (used by default when teams is installed): a `ScopedToTeam` subject is
+  acted on inside `Teams::runAs()` of its own team. Any other subject runs as before.
+- `SubjectContextUnavailableException`, and a `context missing` count in the sweep
+  (`SweepResult::$contextMissing`, a `context missing` column in `lifecycle:sweep`): a schedule
+  whose subject's team was deleted, or whose stored team does not exist, is put off by
+  `schedules.retry_after` with `last_denial` `context_missing` — not run, not errored, no attempt
+  counted — and runs once the team is back. Its expiry warnings wait the same way.
+- `adoptAll()` takes a `skipped` callback; `lifecycle:adopt` lists the rows it skipped because
+  their tenant context is gone.
+
+### Fixed
+
+- Scheduled transitions, TTL expiries (`expiresVia`), expiry warnings and retries of
+  `ScopedToTeam` subjects no longer error in the console sweep: teams' write guard refused the
+  write without a current team, so e.g. a resolved ticket was never auto-closed.
+
+### Changed
+
+- `lifecycle.subjects` takes a `context` key beside the listed models; a plain list of models keeps
+  working.
+- Requires `package-toolkit-for-laravel` 2.1 or later.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

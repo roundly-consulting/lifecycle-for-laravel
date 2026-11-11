@@ -67,7 +67,8 @@ final readonly class DefinitionsAccessor
     }
 
     /**
-     * The models listed in `lifecycle.subjects`, in config order.
+     * The models listed in `lifecycle.subjects`, in config order (its `context` key is not a
+     * model).
      *
      * @return list<class-string<Model&LifecycleSubject>>
      */
@@ -81,7 +82,12 @@ final readonly class DefinitionsAccessor
 
         $listed = [];
 
-        foreach ($subjects as $subject) {
+        foreach ($subjects as $key => $subject) {
+            // `context` is a setting beside the list (the subject context), not a model.
+            if ($key === 'context') {
+                continue;
+            }
+
             if (! is_string($subject) || ! is_subclass_of($subject, Model::class) || ! is_subclass_of($subject, LifecycleSubject::class)) {
                 throw InvalidLifecycleConfigurationException::notASubject('lifecycle.subjects', $subject);
             }

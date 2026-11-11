@@ -18,10 +18,12 @@ final readonly class SweepResult
         public int $cancelled = 0,
         public int $skipped = 0,
         public int $queued = 0,
+        /** Schedules put off because their subject's tenant context is gone (its team was deleted). */
+        public int $contextMissing = 0,
     ) {}
 
     public function total(): int
     {
-        return $this->executed + $this->deferred + $this->failed + $this->errored + $this->cancelled + $this->skipped + $this->queued;
+        return $this->executed + $this->deferred + $this->failed + $this->errored + $this->cancelled + $this->skipped + $this->queued + $this->contextMissing;
     }
 }

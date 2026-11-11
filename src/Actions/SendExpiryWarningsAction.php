@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Lifecycle\Actions;
 
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
+use RoundlyConsulting\Lifecycle\Contracts\RestoresSubjectContext;
 use RoundlyConsulting\Lifecycle\DataTransferObjects\SweepOptions;
 use RoundlyConsulting\Lifecycle\Definition\DefinitionRegistry;
 use RoundlyConsulting\Lifecycle\Engine\Warnings;
@@ -13,10 +14,12 @@ use RoundlyConsulting\Lifecycle\Enums\ScheduleKind;
 use RoundlyConsulting\Lifecycle\Enums\ScheduleStatus;
 use RoundlyConsulting\Lifecycle\Events\LifecycleExpiring;
 use RoundlyConsulting\Lifecycle\Exceptions\InvalidLifecycleConfigurationException;
+use RoundlyConsulting\Lifecycle\Exceptions\SubjectContextUnavailableException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownLifecycleException;
 use RoundlyConsulting\Lifecycle\Exceptions\UnknownStateException;
 use RoundlyConsulting\Lifecycle\Models\LifecycleSchedule;
 use RoundlyConsulting\Lifecycle\Support\Clock;
+use RoundlyConsulting\Lifecycle\Support\Durations;
 use RoundlyConsulting\Lifecycle\Support\ScheduleModel;
 use RoundlyConsulting\Lifecycle\Support\SubjectResolver;
 use RoundlyConsulting\Lifecycle\Support\Transactions;
@@ -28,7 +31,10 @@ use Throwable;
  * compare-and-swap on `warnings_sent`, so two concurrent warners fire once. Returns how many
  * warnings fired. A row that throws never aborts the pass (the sweep runs the due schedules
  * after it): the exception is reported, and a row the current definitions cannot resolve (its
- * model is no longer a subject, its lifecycle or state was removed) stops warning.
+ * model is no longer a subject, its lifecycle or state was removed) stops warning. Each warning
+ * fires inside the subject's tenant context (RestoresSubjectContext), so listeners see the
+ * subject's team; a subject whose context is gone (its team was deleted) is put off by
+ * `schedules.retry_after`, unreported.
  */
 final readonly class SendExpiryWarningsAction
 {
@@ -36,6 +42,7 @@ final readonly class SendExpiryWarningsAction
         private DefinitionRegistry $registry,
         private Dispatcher $events,
         private ExceptionHandler $exceptions,
+        private RestoresSubjectContext $context,
     ) {}
 
     public function execute(SweepOptions $options): int
@@ -86,6 +93,10 @@ final readonly class SendExpiryWarningsAction
     {
         try {
             return $this->warn($schedule);
+        } catch (SubjectContextUnavailableException) {
+            // The tenant is gone (a deleted team): not an error — look again later.
+            $schedule->newQuery()->whereKey($schedule->id)->toBase()
+                ->update(['next_warn_at' => Clock::format(Durations::add(Clock::now(), RunScheduledTransitionAction::retryAfter()))]);
         } catch (UnknownLifecycleException|UnknownStateException $exception) {
             $this->exceptions->report($exception);
             // Unresolvable for good: the row stops warning; the due pass cancels or fails it.
@@ -123,7 +134,7 @@ final readonly class SendExpiryWarningsAction
 
         $lead = $step->fire;
 
-        return Transactions::run($schedule, function () use ($schedule, $step, $subject, $definition, $expiresAt, $lead): int {
+        return $this->context->run($subject, fn (): int => Transactions::run($schedule, function () use ($schedule, $step, $subject, $definition, $expiresAt, $lead): int {
             // sent' > seen, so a matched row is always a changed row (MySQL counts changed rows).
             $affected = $schedule->newQuery()
                 ->whereKey($schedule->id)
@@ -148,6 +159,6 @@ final readonly class SendExpiryWarningsAction
             }
 
             return $affected === 1 ? 1 : 0;
-        });
+        }));
     }
 }

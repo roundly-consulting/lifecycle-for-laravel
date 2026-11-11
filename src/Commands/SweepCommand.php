@@ -40,10 +40,19 @@ final class SweepCommand extends Command implements Isolatable
             ? $lifecycle->schedules()->runDue($limit, $queue, $database)
             : $lifecycle->sweep($limit, $queue, $database);
 
-        $this->table(['warned', 'executed', 'deferred', 'failed', 'errored', 'cancelled', 'skipped', 'queued'], [[
+        $this->table(['warned', 'executed', 'deferred', 'failed', 'errored', 'cancelled', 'skipped', 'queued', 'context missing'], [[
             $result->warned, $result->executed, $result->deferred, $result->failed,
             $result->errored, $result->cancelled, $result->skipped, $result->queued,
+            $result->contextMissing,
         ]]);
+
+        if ($result->contextMissing > 0) {
+            $this->warn(sprintf(
+                '%d schedule(s) put off: their subject\'s tenant context could not be restored (its team was deleted or is missing). '
+                .'Each is checked again after schedules.retry_after and runs once its context is back (last_denial "context_missing").',
+                $result->contextMissing,
+            ));
+        }
 
         return self::SUCCESS;
     }
