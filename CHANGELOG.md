@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 2.1.0 - 2026-11-11
+
 ### Added
 
 - Multi-tenant subjects: everything the package does to a subject outside your code's own
