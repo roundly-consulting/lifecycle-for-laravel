@@ -152,3 +152,33 @@ jobs:
           TESTING_DB_USERNAME: root
           TESTING_DB_PASSWORD: secret
         run: vendor/bin/pest --ci --exclude-group=pgsql --exclude-group=property --exclude-group=sqlite
+
+  # teams-for-laravel is optional: the package installs, boots and sweeps without it. It is
+  # removed, then the suite runs without the multi-tenant cases (group `teams`); the default
+  # subject context must then be no context. The leg refuses to pass on zero tests or a skip.
+  test-without-teams:
+    runs-on: ubuntu-latest
+    name: P8.4 - teams not installed
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl, fileinfo
+          coverage: none
+
+      - name: Remove teams-for-laravel
+        run: |
+          composer remove --dev --no-interaction --no-update roundly-consulting/teams-for-laravel
+          composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Execute the suite without teams
+        run: |
+          vendor/bin/pest --ci --exclude-group=teams --exclude-group=pgsql --exclude-group=mysql --exclude-group=real-engine --exclude-group=property --fail-on-skipped --log-junit junit.xml
+          tests=$(grep -o 'tests="[0-9]*"' junit.xml | head -1 | grep -o '[0-9]*')
+          echo "tests without teams: ${tests}"
+          [ "${tests}" -gt 0 ]
